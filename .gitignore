@@ -4,5 +4,6 @@ CMakeCache.txt
 cmake_install.cmake
 *~
 *.o
-rho
+*/Makefile
+Makefile
 

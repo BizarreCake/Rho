@@ -30,6 +30,7 @@
 #include <readline/history.h>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 
 
 namespace rho {
@@ -198,12 +199,20 @@ namespace rho {
                         exec->find_section ("code")->data.get_size ());
     }
     
+    auto start = std::chrono::high_resolution_clock::now ();
+    
     this->vm->run (*exec);
     if (print)
       {
         VALUE val = this->vm->get_repl_var (this->vars["that"]);
-        std::cout << " => " << rho_value_str (RHO_VALUE(val)) << '\n' << std::endl;
+        std::cout << " => " << rho_value_str (RHO_VALUE(val)) << '\n';
       }
+    
+    auto end = std::chrono::high_resolution_clock::now ();
+    auto passed = end - start;
+    std::cout << " [" << std::chrono::duration_cast<std::chrono::milliseconds> (passed).count () << " ms]" << std::endl;
+    
+    std::cout << std::endl;
     
     delete exec;
   }
@@ -289,7 +298,10 @@ namespace rho {
           {
             std::string s;
             for (auto& part : this->buf)
-              s.append (part);
+              {
+                s.append (part);
+                s.push_back ('\n');
+              }
             this->buf.clear ();
             s.append (input);
             this->eval (s.c_str ());

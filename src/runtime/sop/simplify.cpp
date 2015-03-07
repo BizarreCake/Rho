@@ -30,6 +30,15 @@ namespace rho {
   
   
   
+  static rho_sop*
+  _simplify_normal (rho_sop *sop)
+  {
+    
+    return sop;
+  }
+  
+  
+  
   rho_sop*
   rho_sop_simplify (rho_sop *sop, sop_simplify_level level)
   {
@@ -39,10 +48,77 @@ namespace rho {
         return _simplify_basic (sop);
         
       case SIMPLIFY_NORMAL:
-        return _simplify_basic (sop);
+        return _simplify_normal (sop);
       
       case SIMPLIFY_FULL:
-        return _simplify_basic (sop);
+        return _simplify_normal (sop);
+      }
+    
+    return sop;
+  }
+  
+  
+  
+//------------------------------------------------------------------------------
+  
+  /* 
+   * Flattens out redundant expressions (e.g. a sum containing just one element
+   * will be flattened into just that element).
+   */
+  rho_sop*
+  rho_sop_flatten (rho_sop *sop, virtual_machine& vm)
+  {
+    switch (sop->type)
+      {
+      case SOP_ADD:
+        if (rho_sop_arr_size (sop) == 0)
+          {
+            rho_sop_unprotect (sop);
+            return rho_sop_new (rho_value_new_int (0, vm), vm);
+          }
+        else if (rho_sop_arr_size (sop) == 1)
+          {
+            rho_sop *elem = rho_sop_arr_get (sop, 0);
+            rho_sop_protect (elem, vm);
+            rho_sop_unprotect (sop);
+            return elem;
+          }
+        break;
+      
+      case SOP_MUL:
+        if (rho_sop_arr_size (sop) == 0)
+          {
+            rho_sop_unprotect (sop);
+            return rho_sop_new (rho_value_new_int (1, vm), vm);
+          }
+        else if (rho_sop_arr_size (sop) == 1)
+          {
+            rho_sop *elem = rho_sop_arr_get (sop, 0);
+            rho_sop_protect (elem, vm);
+            rho_sop_unprotect (sop);
+            return elem;
+          }
+        break;
+      
+      default: ;
+      }
+    
+    return sop;
+  }
+  
+  /* 
+   * Repeatedly flattens out a SOP expression until not possible anymore.
+   */
+  rho_sop*
+  rho_sop_deep_flatten (rho_sop *sop, virtual_machine& vm)
+  {
+    rho_sop *last = nullptr;
+    for (;;)
+      {
+        sop = rho_sop_flatten (sop, vm);
+        if (sop == last)
+          break;
+        last = sop;
       }
     
     return sop;

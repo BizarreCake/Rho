@@ -35,6 +35,7 @@ namespace rho {
     TOK_EOF,
     
     // punctuation:
+    TOK_LPAREN_LIST,      // '(
     TOK_LBRACE_SET,       // ${
     TOK_LBRACE,           // {
     TOK_RBRACE,           // }
@@ -49,6 +50,7 @@ namespace rho {
     TOK_PARENIFY,         // (:
     TOK_RARROW,           // <-
     TOK_RANGE,            // ..
+    TOK_SUBST,            // |.
     
     // operators:
     TOK_ASSIGN,           // =
@@ -56,6 +58,7 @@ namespace rho {
     TOK_SUB,              // -
     TOK_MUL,              // *
     TOK_DIV,              // /
+    TOK_IDIV,             // //
     TOK_MOD,              // %
     TOK_EQ,               // ==
     TOK_NEQ,              // =/=
@@ -66,6 +69,7 @@ namespace rho {
     TOK_N,                // N:
     
     // datums:
+    TOK_NIL,
     TOK_IDENT,
     TOK_INTEGER,
     TOK_REAL,
@@ -79,6 +83,7 @@ namespace rho {
     TOK_ELSE,
     TOK_OTHERWISE,
     TOK_SUM,
+    TOK_PRODUCT,
     
     // data types:
     TOK_INT,

@@ -31,12 +31,14 @@ namespace rho {
     AST_PROGRAM,
     
     // datums:
+    AST_NIL,
     AST_IDENT,
     AST_INTEGER,
     AST_REAL,
     AST_SYM,    
     AST_SET,
     AST_TYPE,
+    AST_LIST,
     
     // expressions:
     AST_BINOP,
@@ -46,6 +48,8 @@ namespace rho {
     AST_IF,
     AST_N,
     AST_SUM,
+    AST_PRODUCT,
+    AST_SUBST,
     
     // statements:
     AST_EXPR_STMT,
@@ -131,6 +135,21 @@ namespace rho {
    * Datums:
    */
 //------------------------------------------------------------------------------
+  
+  class ast_nil: public ast_expr
+  {
+  public:
+    virtual ast_type get_type () override { return AST_NIL; }
+    
+  public:
+    virtual ast_node*
+    clone () override
+    {
+      return new ast_nil ();
+    }
+  };
+  
+  
   
   /* 
    * Arbitrary-precision integer, simply stored as a string for convenience.
@@ -292,6 +311,47 @@ namespace rho {
     }
   };
   
+  
+  
+  /* 
+   * Scheme lists.
+   * 
+   * Examples:
+   *     '(1 2 3), '(), '(5)
+   */
+  class ast_list: public ast_expr
+  {
+    std::vector<ast_expr *> elems;
+    
+  public:
+    virtual ast_type get_type () override { return AST_LIST; }
+    
+    inline std::vector<ast_expr *>& get_elems () { return this->elems; }
+    
+  public:
+    ~ast_list ()
+    {
+      for (ast_expr *e : this->elems)
+        delete e;
+    }
+    
+  public:
+    void
+    add_expr (ast_expr *e)
+    {
+      this->elems.push_back (e);
+    }
+    
+    virtual ast_node*
+    clone () override
+    {
+      ast_list *lst = new ast_list ();
+      for (ast_expr *e : this->elems)
+        lst->add_expr (static_cast<ast_expr *> (e->clone ()));
+      return lst;
+    }
+  };
+  
 //------------------------------------------------------------------------------
   
   
@@ -311,6 +371,7 @@ namespace rho {
     AST_BINOP_SUB,        // -
     AST_BINOP_MUL,        // *
     AST_BINOP_DIV,        // /
+    AST_BINOP_IDIV,       // //
     AST_BINOP_MOD,        // %
     AST_BINOP_POW,        // ^
     
@@ -591,8 +652,102 @@ namespace rho {
     {
       return new ast_sum (static_cast<ast_ident *> (this->var->clone ()),
         static_cast<ast_expr *> (this->start->clone ()),
+        this->end ? static_cast<ast_expr *> (this->end->clone ()) : nullptr,
+        static_cast<ast_block *> (this->body->clone ()));
+    }
+  };
+  
+  
+  
+  /* 
+   * Product of a series of terms.
+   *     product <var> <- <start>..<end> {
+   *         <body>
+   *     }
+   * 
+   * Examples:
+   *     product k<-1..n { k }
+   */
+  class ast_product: public ast_expr
+  {
+    ast_ident *var;
+    ast_expr *start;
+    ast_expr *end;
+    ast_block *body;
+    
+  public:
+    virtual ast_type get_type () override { return AST_PRODUCT; }
+    
+    inline ast_ident* get_var () { return this->var; }
+    inline ast_expr* get_start () { return this->start; }
+    inline ast_expr* get_end () { return this->end; }
+    inline ast_block* get_body () { return this->body; }
+    
+  public:
+    ast_product (ast_ident *var, ast_expr *start, ast_expr *end, ast_block *body)
+      : var (var), start (start), end (end), body (body)
+      { }
+    
+    ~ast_product ()
+    {
+      delete this->var;
+      delete this->start;
+      delete this->end;
+      delete this->body;
+    }
+    
+  public:
+    virtual ast_node*
+    clone () override
+    {
+      return new ast_product (static_cast<ast_ident *> (this->var->clone ()),
+        static_cast<ast_expr *> (this->start->clone ()),
         static_cast<ast_expr *> (this->end->clone ()),
         static_cast<ast_block *> (this->body->clone ()));
+    }
+  };
+  
+  
+  
+  /* 
+   * Substitutes a symbol with an expression.
+   *     <expr> |.<sym>=<val>
+   * 
+   * Examples:
+   *     (2*'x + 1) |.'x=5
+   */
+  class ast_subst: public ast_expr
+  {
+    ast_expr *expr;
+    ast_expr *sym;
+    ast_expr *val;
+    
+  public:
+    virtual ast_type get_type () override { return AST_SUBST; }
+    
+    inline ast_expr* get_expr () { return this->expr; }
+    inline ast_expr* get_sym () { return this->sym; }
+    inline ast_expr* get_val () { return this->val; }
+    
+  public:
+    ast_subst (ast_expr *expr, ast_expr *sym, ast_expr *val)
+      : expr (expr), sym (sym), val (val)
+      { }
+    
+    ~ast_subst ()
+    {
+      delete this->expr;
+      delete this->sym;
+      delete this->val;
+    }
+    
+  public:
+    virtual ast_node*
+    clone () override
+    {
+      return new ast_subst (static_cast<ast_expr *> (this->expr->clone ()),
+        static_cast<ast_expr *> (this->sym->clone ()),
+        static_cast<ast_expr *> (this->val->clone ()));
     }
   };
   

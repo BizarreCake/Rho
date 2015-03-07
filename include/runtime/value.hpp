@@ -40,6 +40,8 @@ namespace rho {
     RHO_FUNC,
     RHO_SYM,
     RHO_SOP,   // symbolic operation
+    RHO_EMPTY_CONS,
+    RHO_CONS,  // cons cell
   };
   
   
@@ -63,6 +65,10 @@ namespace rho {
           } fn;
         char *sym;
         rho_sop *sop;
+        struct
+          {
+            rho_value *car, *cdr;
+          } cons;
       } val;
     
     unsigned char type;
@@ -116,6 +122,15 @@ namespace rho {
   
   rho_value* rho_value_new_sym (const char *str, virtual_machine& vm);
   
+  
+  rho_value* rho_value_new_empty_cons (virtual_machine& vm);
+  
+  rho_value* rho_value_new_cons (rho_value *car, rho_value *cdr,
+    virtual_machine& vm);
+  
+  
+  rho_value* rho_value_new_sop (rho_sop *sop, virtual_machine& vm);
+  
 //------------------------------------------------------------------------------
 
 
@@ -134,6 +149,8 @@ namespace rho {
   rho_value* rho_value_mul (rho_value *a, rho_value *b, virtual_machine& vm);
   
   rho_value* rho_value_div (rho_value *a, rho_value *b, virtual_machine& vm);
+  
+  rho_value* rho_value_idiv (rho_value *a, rho_value *b, virtual_machine& vm);
   
   rho_value* rho_value_mod (rho_value *a, rho_value *b, virtual_machine& vm);
   
@@ -168,7 +185,7 @@ namespace rho {
   // Other.
   // 
   
-  std::string rho_value_str (rho_value *val);
+  std::string rho_value_str (rho_value *val, bool no_sign = false);
   
   /* 
    * Computes a 32-bit hash value for the specified value.

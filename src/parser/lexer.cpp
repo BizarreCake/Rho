@@ -263,6 +263,13 @@ namespace rho {
     int c = strm.peek ();
     switch (c)
       {
+      case '\'':
+        strm.get ();
+        if (strm.get () == '(')
+          { tok.type = TOK_LPAREN_LIST; return true; }
+        strm.unget (2);
+        break;
+      
       case '$':
         strm.get ();
         if (strm.get () == '{')
@@ -383,13 +390,34 @@ namespace rho {
         strm.unget ();
         return false;
       
+      case '/':
+        strm.get ();
+        if (strm.peek () == '/')
+          {
+            strm.get ();
+            tok.type = TOK_IDIV;
+          }
+        else
+          tok.type = TOK_DIV;
+        return true;
+      
+      case '|':
+        strm.get ();
+        if (strm.peek () == '.')
+          {
+            strm.get ();
+            tok.type = TOK_SUBST;
+            return true;
+          }
+        strm.unget ();
+        return false;
+      
       case '}': strm.get (); tok.type = TOK_RBRACE; return true;
       case ')': strm.get (); tok.type = TOK_RPAREN; return true;
       case ';': strm.get (); tok.type = TOK_SCOL; return true;
       case ',': strm.get (); tok.type = TOK_COMMA; return true;
       case '+': strm.get (); tok.type = TOK_ADD; return true;
       case '*': strm.get (); tok.type = TOK_MUL; return true;
-      case '/': strm.get (); tok.type = TOK_DIV; return true;
       case '%': strm.get (); tok.type = TOK_MOD; return true;
       case '^': strm.get (); tok.type = TOK_CARET; return true;
       case '!': strm.get (); tok.type = TOK_BANG; return true;
@@ -421,6 +449,8 @@ namespace rho {
       { "else", TOK_ELSE },
       { "otherwise", TOK_OTHERWISE },
       { "sum", TOK_SUM },
+      { "product", TOK_PRODUCT },
+      { "nil", TOK_NIL },
       
       // data types:
       { "Int", TOK_INT },

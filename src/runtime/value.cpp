@@ -146,6 +146,47 @@ namespace rho {
   
   
   
+  rho_value*
+  rho_value_new_empty_cons (virtual_machine& vm)
+  {
+    rho_value *val = vm.get_gc ().alloc_protected ();
+    val->type = RHO_EMPTY_CONS;
+    return val;
+  }
+  
+  rho_value*
+  rho_value_new_cons (rho_value *car, rho_value *cdr, virtual_machine& vm)
+  {
+    rho_value *val = vm.get_gc ().alloc_protected ();
+    val->type = RHO_CONS;
+    
+    val->val.cons.car = car;
+    val->val.cons.cdr = cdr;
+    
+    return val;
+  }
+  
+  
+  
+  rho_value*
+  rho_value_new_sop (rho_sop *sop, virtual_machine& vm)
+  {
+    if (sop->type == SOP_VAL)
+      {
+        rho_value *val = sop->val.val;
+        rho_sop_unprotect (sop);
+        return val;
+      }
+    
+    rho_value *val = vm.get_gc ().alloc_protected ();
+    val->type = RHO_SOP;
+    val->val.sop = sop;
+    rho_sop_unprotect (sop);
+    return val;
+  }
+  
+  
+  
 //------------------------------------------------------------------------------
   
   rho_value*
@@ -301,7 +342,7 @@ namespace rho {
               val->type = RHO_REAL;
               val->val.real.prec = prec;
               mpfr_init2 (val->val.real.f, 1 + (int)((prec + 3) * 3.321928095));
-              mpfr_sub_z (val->val.real.f, b->val.real.f, a->val.i, MPFR_RNDN);
+              mpfr_z_sub (val->val.real.f, a->val.i, b->val.real.f, MPFR_RNDN);
               return val;
             }
           
@@ -668,6 +709,37 @@ namespace rho {
   }
   
   
+  
+  rho_value*
+  rho_value_idiv (rho_value *a, rho_value *b, virtual_machine& vm)
+  {
+    switch (a->type)
+      {
+      case RHO_INT:
+        switch (b->type)
+          {
+          case RHO_INT:
+            {
+              rho_value *val = vm.get_gc ().alloc_protected ();
+              val->type = RHO_INT;
+              mpz_init (val->val.i);
+              mpz_div (val->val.i, a->val.i, b->val.i);
+              return val;
+            }
+          
+          default: ;
+          }
+        break;
+      
+      default: ;
+      }
+    
+    rho_value *val = vm.get_gc ().alloc_protected ();
+    val->type = RHO_NIL;
+    return val;
+  }
+  
+  
   rho_value*
   rho_value_mod (rho_value *a, rho_value *b, virtual_machine& vm)
   {
@@ -906,6 +978,15 @@ namespace rho {
     return val;
   }
   
+  static rho_value*
+  _make_bool (bool v, virtual_machine& vm)
+  {
+    rho_value *val = vm.get_gc ().alloc_protected ();
+    val->type = RHO_INT;
+    mpz_init_set_ui (val->val.i, v ? 1 : 0);
+    return val;
+  }
+  
   
   rho_value*
   rho_value_eq (rho_value *a, rho_value *b, virtual_machine& vm)
@@ -944,6 +1025,12 @@ namespace rho {
             }
           }
         break;
+      
+      case RHO_NIL:
+        return _make_bool (b->type == RHO_NIL, vm);
+      
+      case RHO_EMPTY_CONS:
+        return _make_bool (b->type == RHO_EMPTY_CONS, vm);
       
       default: ;
       }
@@ -990,6 +1077,12 @@ namespace rho {
             }
           }
         break;
+      
+      case RHO_NIL:
+        return _make_bool (b->type != RHO_NIL, vm);
+      
+      case RHO_EMPTY_CONS:
+        return _make_bool (b->type != RHO_EMPTY_CONS, vm);
       
       default: ;
       }
@@ -1083,6 +1176,12 @@ namespace rho {
           }
         break;
       
+      case RHO_NIL:
+        return _make_bool (b->type == RHO_NIL, vm);
+      
+      case RHO_EMPTY_CONS:
+        return _make_bool (b->type == RHO_EMPTY_CONS, vm);
+      
       default: ;
       }
     
@@ -1175,6 +1274,12 @@ namespace rho {
           }
         break;
       
+      case RHO_NIL:
+        return _make_bool (b->type == RHO_NIL, vm);
+      
+      case RHO_EMPTY_CONS:
+        return _make_bool (b->type == RHO_EMPTY_CONS, vm);
+      
       default: ;
       }
     
@@ -1192,6 +1297,7 @@ namespace rho {
     ss << "%." << val->val.real.prec << "RNf";
     
     mpfr_exp_t e = mpfr_get_exp (val->val.real.f);
+    if (e < 0) e = 0;
     
     char *buf = new char[val->val.real.prec + 10 + (int)(e*3.321928095)];
     mpfr_sprintf (buf, ss.str ().c_str (), val->val.real.f);
@@ -1208,17 +1314,41 @@ namespace rho {
     return str;
   }
   
+  static std::string
+  _cons_to_str (rho_value *val)
+  {
+    std::ostringstream ss;
+    
+    ss << '(';
+    ss << rho_value_str (val->val.cons.car);
+    
+    rho_value *v = val->val.cons.cdr;
+    while (v->type == RHO_CONS)
+      {
+        ss << ' ' << rho_value_str (v->val.cons.car);
+        v = v->val.cons.cdr;
+      }
+    
+    if (v->type != RHO_EMPTY_CONS)
+      ss << " . " << rho_value_str (v);
+    ss << ')';
+    
+    return ss.str ();
+  }
+  
   std::string
-  rho_value_str (rho_value *val)
+  rho_value_str (rho_value *val, bool no_sign)
   {
     switch (val->type)
       {
       case RHO_NIL: return "nil";
       
+      case RHO_EMPTY_CONS: return "()";
+      
       case RHO_INT:
         {
           char *s = mpz_get_str (nullptr, 10, val->val.i);
-          std::string str {s};
+          std::string str {no_sign ? (*s == '-' ? (s + 1) : s) : s};
           free (s);
           return str;
         }
@@ -1237,7 +1367,10 @@ namespace rho {
         return val->val.sym;
       
       case RHO_SOP:
-        return rho_sop_str (val->val.sop);
+        return rho_sop_str (val->val.sop, no_sign);
+      
+      case RHO_CONS:
+        return _cons_to_str (val);
       }
     
     return "";

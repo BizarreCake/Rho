@@ -33,7 +33,6 @@ namespace rho {
     SOP_SYM,
     
     SOP_ADD,
-    SOP_SUB,
     SOP_MUL,
     SOP_DIV,
     SOP_POW,
@@ -124,7 +123,7 @@ namespace rho {
 
 //------------------------------------------------------------------------------
 // 
-// Simplification:
+// Common operations:
 // 
   
   enum sop_simplify_level
@@ -136,6 +135,26 @@ namespace rho {
   
   rho_sop* rho_sop_simplify (rho_sop *sop, sop_simplify_level level);
   
+  
+  /* 
+   * Flattens out redundant expressions (e.g. a sum containing just one element
+   * will be flattened into just that element).
+   */
+  rho_sop* rho_sop_flatten (rho_sop *sop, virtual_machine& vm);
+  
+  /* 
+   * Repeatedly flattens out a SOP expression until not possible anymore.
+   */
+  rho_sop* rho_sop_deep_flatten (rho_sop *sop, virtual_machine& vm);
+  
+  
+  
+  /* 
+   * Substitutes an expression in the place of the symbol with the given name.
+   */
+  rho_sop* rho_sop_substitute (rho_sop *dest, const char *sym, rho_sop *src,
+    virtual_machine& vm);
+  
 //------------------------------------------------------------------------------
 
 
@@ -145,7 +164,7 @@ namespace rho {
 // Other:
 // 
   
-  std::string rho_sop_str (rho_sop *sop);
+  std::string rho_sop_str (rho_sop *sop, bool no_sign = false);
   
   
   /* 
@@ -211,7 +230,9 @@ namespace rho {
    * Returns the coefficient part of the specified product, or null if there
    * is no coefficient (coefficient equal to 1).
    */
-  rho_sop* rho_sop_mul_get_coeff (rho_sop *sop);
+  rho_sop* rho_sop_get_coeff (rho_sop *sop);
+  
+  int rho_sop_get_coeff_sign (rho_sop *sop);
   
   
 //------------------------------------------------------------------------------

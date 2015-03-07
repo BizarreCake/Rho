@@ -174,6 +174,12 @@ namespace rho {
     this->buf.put_bytes ((unsigned char *)num.c_str (), num.length () + 1);
   }
   
+  void
+  code_generator::emit_push_empty_cons ()
+  {
+    this->buf.put_byte (0x07);
+  }
+  
   
   
   void
@@ -282,6 +288,37 @@ namespace rho {
   {
     this->buf.put_byte (0x27);
   }
+  
+  void
+  code_generator::emit_cons ()
+  {
+    this->buf.put_byte (0x28);
+  }
+  
+  void
+  code_generator::emit_car ()
+  {
+    this->buf.put_byte (0x29);
+  }
+  
+  void
+  code_generator::emit_cdr ()
+  {
+    this->buf.put_byte (0x2A);
+  }
+  
+  void
+  code_generator::emit_idiv ()
+  {
+    this->buf.put_byte (0x2B);
+  }
+  
+  void
+  code_generator::emit_subst ()
+  {
+    this->buf.put_byte (0x2C);
+  }
+  
   
   
   
@@ -403,6 +440,12 @@ namespace rho {
   code_generator::emit_cmp_ge ()
   {
     this->buf.put_byte (0x55);
+  }
+  
+  void
+  code_generator::emit_cmp_cvg ()
+  {
+    this->buf.put_byte (0x56);
   }
   
   

@@ -20,8 +20,7 @@
 #include "compiler/codegen.hpp"
 #include "common/byte_vector.hpp"
 #include "compiler/asttools.hpp"
-
-#include <iostream> // DEBUG
+#include <unordered_map>
 
 
 namespace rho {
@@ -97,9 +96,49 @@ namespace rho {
   
   
   
+  namespace {
+    
+    enum builtin_type {
+      BI_UNKNOWN,
+      
+      BI_CONS,
+      BI_CAR,
+      BI_CDR,
+    };
+  }
+  
+  static builtin_type
+  _get_builtin_type (const std::string& name)
+  {
+    static const std::unordered_map<std::string, builtin_type> _map {
+      { "cons", BI_CONS },
+      { "car", BI_CAR },
+      { "cdr", BI_CDR },
+    };
+    
+    auto itr = _map.find (name);
+    if (itr == _map.end ())
+      return BI_UNKNOWN;
+    return itr->second;
+  }
+  
   void
   compiler::compile_call (ast_call *ast)
   {
+    // builtins
+    if (ast->get_func ()->get_type () == AST_IDENT)
+      {
+        ast_ident *id = static_cast<ast_ident *> (ast->get_func ());
+        switch (_get_builtin_type (id->get_name ()))
+          {
+          case BI_CONS: this->compile_builtin_cons (ast); return;
+          case BI_CAR: this->compile_builtin_car (ast); return;
+          case BI_CDR: this->compile_builtin_cdr (ast); return;
+          
+          case BI_UNKNOWN: ;
+          }
+      }
+    
     // push arguments in reverse order
     auto& args = ast->get_args ();
     for (int i = args.size () - 1; i >= 0; --i)

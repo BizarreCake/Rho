@@ -194,6 +194,14 @@ namespace rho {
             }
             break;
           
+          // push_empty_cons
+          case 0x07:
+            STACK_OVERFLOW_CHECK(1)
+            stack[sp] = rho_value_new_empty_cons (*this);
+            rho_value_unprotect (stack[sp]);
+            ++ sp;
+            break;
+          
 //------------------------------------------------------------------------------
           
           // push_frame - allocates a new stack frame.
@@ -348,6 +356,61 @@ namespace rho {
             rho_value_unprotect (stack[sp - 1]);
             break;
                     
+          // cons
+          case 0x28:
+            stack[sp - 2] = rho_value_new_cons (stack[sp - 2], stack[sp - 1], *this);
+            rho_value_unprotect (stack[sp - 2]);
+            -- sp;
+            break;
+          
+          // car
+          case 0x29:
+            stack[sp - 1] = stack[sp - 1]->val.cons.car;
+            break;
+          
+          // cdr
+          case 0x2A:
+            stack[sp - 1] = stack[sp - 1]->val.cons.cdr;
+            break;
+          
+          // idiv
+          case 0x2B:
+            stack[sp - 2] = rho_value_idiv (stack[sp - 2], stack[sp - 1], *this);
+            rho_value_unprotect (stack[sp - 2]);
+            -- sp;
+            break;
+          
+          // subst
+          case 0x2C:
+            {
+              rho_value *expr = RHO_VALUE(stack[sp - 3]);
+              if (expr->type == RHO_SYM)
+                {
+                  expr = rho_value_new_sop (rho_sop_new (expr, *this), *this);
+                }
+              if (expr->type != RHO_SOP)
+                {
+                  sp -= 2;
+                  break;
+                }
+              
+              rho_value *sym = RHO_VALUE(stack[sp - 2]);
+              if (sym->type != RHO_SYM)
+                throw vm_error ("must substitute into symbol");
+              
+              rho_value *val = RHO_VALUE(stack[sp - 1]);
+              rho_sop *sval = (val->type == RHO_SOP)
+                ? val->val.sop : rho_sop_new (val, *this);
+              
+              rho_sop *nsop = rho_sop_substitute (expr->val.sop,
+                sym->val.sym,sval, *this);
+              rho_sop_unprotect (sval);
+              sp -= 3;
+              stack[sp++] = rho_value_new_sop (nsop, *this);
+              rho_value_unprotect (expr);
+            }
+            break;
+                    
 //------------------------------------------------------------------------------
           
           // jmp
@@ -487,6 +550,47 @@ namespace rho {
               RHO_VALUE (stack[sp - 1]), *this);
             rho_value_unprotect (stack[sp - 2]);
             -- sp;
+            break;
+          
+          // cmp_cvg
+          case 0x56:
+            {
+              rho_value *d = rho_value_sub (RHO_VALUE(stack[sp - 1]),
+                RHO_VALUE(stack[sp - 2]), *this);
+              sp -= 2;
+              
+              int prec = GET_INTERNAL(stack[GET_INTERNAL(stack[bp + 2]) + 1]);
+              mpfr_t e;
+              mpfr_init2 (e, 1 + (int)((prec + 3) * 3.321928095));
+              mpfr_set_d (e, 10, MPFR_RNDN);
+              mpfr_pow_si (e, e, -prec, MPFR_RNDN);
+              
+              switch (d->type)
+                {
+                case RHO_REAL:
+                  stack[sp] = rho_value_new_int (
+                    (mpfr_cmp (d->val.real.f, e) < 0) ? 1 : 0, *this);
+                  rho_value_unprotect (stack[sp]);
+                  ++ sp;
+                  break;
+                
+                case RHO_INT:
+                  stack[sp] = rho_value_new_int (
+                    (mpz_cmp_si (d->val.i, 0) == 0) ? 1 : 0, *this);
+                  rho_value_unprotect (stack[sp]);
+                  ++ sp;
+                  break;
+                
+                default:
+                  stack[sp] = rho_value_new_int (0, *this);
+                  rho_value_unprotect (stack[sp]);
+                  ++ sp;
+                  break;
+                }
+              
+              rho_value_unprotect (d);
+              mpfr_clear (e);
+            }
             break;
 
 //------------------------------------------------------------------------------

@@ -122,6 +122,8 @@ namespace rho {
     
     // expressions:
     
+    void compile_nil (ast_nil *ast);
+    
     void compile_integer (ast_integer *ast);
     
     void compile_real (ast_real *ast);
@@ -129,6 +131,8 @@ namespace rho {
     void compile_ident (ast_ident *ast);
     
     void compile_sym (ast_sym *ast);
+    
+    void compile_list (ast_list *ast);
     
     void compile_binop (ast_binop *ast);
     
@@ -143,6 +147,26 @@ namespace rho {
     void compile_n (ast_n *ast);
     
     void compile_sum (ast_sum *ast);
+    void compile_boundless_sum (ast_sum *ast);
+    
+    void compile_product (ast_product *ast);
+    
+    void compile_subst (ast_subst *ast);
+    
+    
+    void compile_assign (ast_binop *ast);
+    
+    // source operand is assumed to be in the stack.
+    void compile_assign_in_stack (ast_expr *dest);
+    
+    void compile_assign_to_ident (ast_ident *dest);
+    
+    
+    // builtins:
+     
+    void compile_builtin_cons (ast_call *ast);
+    void compile_builtin_car (ast_call *ast);
+    void compile_builtin_cdr (ast_call *ast);
      
 //------------------------------------------------------------------------------
   };

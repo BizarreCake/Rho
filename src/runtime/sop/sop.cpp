@@ -61,7 +61,6 @@ namespace rho {
         break;
       
       case SOP_ADD:
-      case SOP_SUB:
       case SOP_MUL:
         rho_sop_arr_init (copy, sop->val.arr.cap);
         for (int i = 0; i < rho_sop_arr_size (sop); ++i)
@@ -98,7 +97,6 @@ namespace rho {
         break;
       
       case SOP_ADD:
-      case SOP_SUB:
       case SOP_MUL:
         rho_sop_arr_init (copy, sop->val.arr.cap);
         for (int i = 0; i < rho_sop_arr_size (sop); ++i)
@@ -129,7 +127,6 @@ namespace rho {
       {
       case SOP_ADD:
       case SOP_MUL:
-      case SOP_SUB:
         delete[] sop->val.arr.elems;
         break;
       
@@ -147,7 +144,6 @@ namespace rho {
     switch (type)
       {
       case SOP_ADD: return 1;
-      case SOP_SUB: return 1;
       case SOP_MUL: return 2;
       case SOP_DIV: return 2;
       case SOP_POW: return 3;
@@ -174,6 +170,7 @@ namespace rho {
       return "0";
     
     std::string str;
+    bool ns = false;
     
     for (int i = 0; i < s; ++i)
       {
@@ -181,43 +178,24 @@ namespace rho {
         if (_get_bop_prec (opr) < _get_bop_type_prec (SOP_ADD))
           {
             str.push_back ('(');
-            str.append (rho_sop_str (opr));
+            str.append (rho_sop_str (opr, ns));
             str.push_back (')');
           }
         else
-          str.append (rho_sop_str (opr));
+          str.append (rho_sop_str (opr, ns));
+        ns = false;
         
         if (i != s - 1)
-          str.append (" + ");
-      }
-    
-    return str;
-  }
-  
-  
-  static std::string
-  _rho_sop_str_binop_sub (rho_sop *sop)
-  {
-    int s = rho_sop_arr_size (sop);
-    if (s == 0)
-      return "0";
-      
-    std::string str;
-    
-    for (int i = 0; i < s; ++i)
-      {
-        rho_sop *opr = sop->val.arr.elems[i];
-        if (_get_bop_prec (opr) < _get_bop_type_prec (SOP_SUB))
           {
-            str.push_back ('(');
-            str.append (rho_sop_str (opr));
-            str.push_back (')');
+            rho_sop *next = rho_sop_arr_get (sop, i + 1);
+            if (rho_sop_get_coeff_sign (next) < 0)
+              {
+                str.append (" - ");
+                ns = true;
+              }
+            else
+              str.append (" + ");
           }
-        else
-          str.append (rho_sop_str (opr));
-        
-        if (i != s - 1)
-          str.append (" - ");
       }
     
     return str;
@@ -225,13 +203,14 @@ namespace rho {
   
   
   static std::string
-  _rho_sop_str_binop_mul (rho_sop *sop)
+  _rho_sop_str_binop_mul (rho_sop *sop, bool no_sign)
   {
     int s = rho_sop_arr_size (sop);
     if (s == 0)
       return "1";
       
     std::string str;
+    bool gs = false; // got rid of sign?
     
     for (int i = 0; i < s; ++i)
       {
@@ -243,7 +222,19 @@ namespace rho {
             str.push_back (')');
           }
         else
-          str.append (rho_sop_str (opr));
+          {
+            if (no_sign && !gs && rho_sop_is_number (opr))
+              {
+                if (rho_sop_is_number_eq (opr, -1))
+                  continue;
+                else
+                  str.append (rho_sop_str (opr, no_sign));
+                
+                gs = true;
+              }
+            else
+              str.append (rho_sop_str (opr));
+          }
         
         if (i != s - 1)
           str.push_back ('*');
@@ -316,22 +307,19 @@ namespace rho {
   
   
   std::string
-  rho_sop_str (rho_sop *sop)
+  rho_sop_str (rho_sop *sop, bool no_sign)
   {
     switch (sop->type)
       {
       case SOP_VAL:
       case SOP_SYM:
-        return rho_value_str (sop->val.val);
+        return rho_value_str (sop->val.val, no_sign);
       
       case SOP_ADD:
         return _rho_sop_str_binop_add (sop);
       
-      case SOP_SUB:
-        return _rho_sop_str_binop_sub (sop);
-      
       case SOP_MUL:
-        return _rho_sop_str_binop_mul (sop);
+        return _rho_sop_str_binop_mul (sop, no_sign);
       
       case SOP_DIV:
         return _rho_sop_str_binop_div (sop);
@@ -434,10 +422,10 @@ namespace rho {
     switch (val->type)
       {
       case RHO_INT:
-        return mpz_cmp_ui (val->val.i, num) == 0;
+        return mpz_cmp_si (val->val.i, num) == 0;
       
       case RHO_REAL:
-        return mpfr_cmp_ui (val->val.real.f, num) == 0;
+        return mpfr_cmp_si (val->val.real.f, num) == 0;
       
       default:
         return false;

@@ -25,6 +25,14 @@
 namespace rho {
   
   void
+  compiler::compile_nil (ast_nil *ast)
+  {
+    this->cgen->emit_push_nil ();
+  }
+  
+  
+  
+  void
   compiler::compile_integer (ast_integer *ast)
   {
     const std::string& num = ast->get_value ();
@@ -101,6 +109,12 @@ namespace rho {
   void
   compiler::compile_binop (ast_binop *ast)
   {
+    if (ast->get_op () == AST_BINOP_ASSIGN)
+      {
+        this->compile_assign (ast);
+        return;
+      }
+    
     this->compile_expr (ast->get_lhs ());
     this->compile_expr (ast->get_rhs ());
     
@@ -120,6 +134,10 @@ namespace rho {
       
       case AST_BINOP_DIV:
         this->cgen->emit_div ();
+        break;
+      
+      case AST_BINOP_IDIV:
+        this->cgen->emit_idiv ();
         break;
       
       case AST_BINOP_MOD:
@@ -226,8 +244,60 @@ namespace rho {
   
   
   void
+  compiler::compile_boundless_sum (ast_sum *ast)
+  {
+    this->compile_expr (ast->get_start ());
+    
+    this->push_frame (FT_BLOCK);
+    frame& frm = this->top_frame ();
+    
+    // set up loop variable
+    const std::string& var_name = ast->get_var ()->get_name ();
+    frm.add_local (var_name);
+    int loop_var = frm.get_local (var_name)->index;
+    this->cgen->emit_store_loc (loop_var);
+    
+    // set up sum
+    int sum_var = frm.alloc_local ();
+    this->cgen->emit_push_int_32 (0);
+    this->cgen->emit_store_loc (sum_var);
+    
+    int lbl_loop = this->cgen->create_label ();
+    int lbl_end = this->cgen->create_label ();
+    this->cgen->mark_label (lbl_loop);
+    
+    // body
+    this->cgen->emit_load_loc (sum_var);
+    this->cgen->emit_dup ();
+    this->compile_block (ast->get_body (), true, false);
+    this->cgen->emit_add ();
+    this->cgen->emit_store_loc (sum_var);
+    this->cgen->emit_load_loc (sum_var);
+    this->cgen->emit_cmp_cvg ();
+    this->cgen->emit_jt (lbl_end);
+    
+    // increment loop variable and loop over
+    this->cgen->emit_load_loc (loop_var);
+    this->cgen->emit_push_int_32 (1);
+    this->cgen->emit_add ();
+    this->cgen->emit_store_loc (loop_var);
+    this->cgen->emit_jmp (lbl_loop);
+    
+    this->cgen->mark_label (lbl_end);
+    this->cgen->emit_load_loc (sum_var);
+    
+    this->pop_frame ();
+  }
+  
+  void
   compiler::compile_sum (ast_sum *ast)
   {
+    if (!ast->get_end ())
+      {
+        this->compile_boundless_sum (ast);
+        return;
+      }
+    
     this->compile_expr (ast->get_end ());
     this->compile_expr (ast->get_start ());
     
@@ -276,10 +346,96 @@ namespace rho {
   
   
   void
+  compiler::compile_product (ast_product *ast)
+  {
+    this->compile_expr (ast->get_end ());
+    this->compile_expr (ast->get_start ());
+    
+    this->push_frame (FT_BLOCK);
+    frame& frm = this->top_frame ();
+    
+    // set up loop variable
+    const std::string& var_name = ast->get_var ()->get_name ();
+    frm.add_local (var_name);
+    int loop_var = frm.get_local (var_name)->index;
+    this->cgen->emit_store_loc (loop_var);
+    
+    // store range end
+    int end_var = frm.alloc_local ();
+    this->cgen->emit_store_loc (end_var);
+    
+    // set up product
+    this->cgen->emit_push_int_32 (1);
+    
+    int lbl_loop = this->cgen->create_label ();
+    int lbl_end = this->cgen->create_label ();
+    this->cgen->mark_label (lbl_loop);
+    
+    // check if loop variable is inside range
+    this->cgen->emit_load_loc (loop_var);
+    this->cgen->emit_load_loc (end_var);
+    this->cgen->emit_cmp_le ();
+    this->cgen->emit_jf (lbl_end);
+    
+    // body
+    this->compile_block (ast->get_body (), true, false);
+    this->cgen->emit_mul ();
+    
+    // increment loop variable and loop over
+    this->cgen->emit_load_loc (loop_var);
+    this->cgen->emit_push_int_32 (1);
+    this->cgen->emit_add ();
+    this->cgen->emit_store_loc (loop_var);
+    this->cgen->emit_jmp (lbl_loop);
+    
+    this->cgen->mark_label (lbl_end);
+    
+    this->pop_frame ();
+  }
+  
+  
+  
+  void
+  compiler::compile_list (ast_list *ast)
+  {
+    auto& elems = ast->get_elems ();
+    if (elems.empty ())
+      {
+        this->cgen->emit_push_empty_cons ();
+        return;
+      }
+      
+    for (size_t i = 0; i < elems.size (); ++i)
+      this->compile_expr (elems[i]);
+    this->cgen->emit_push_empty_cons ();
+    
+    for (size_t i = 0; i < elems.size (); ++i)
+      this->cgen->emit_cons ();
+  }
+  
+  
+  
+  void
+  compiler::compile_subst (ast_subst *ast)
+  {
+    this->compile_expr (ast->get_expr ());
+    this->compile_expr (ast->get_sym ());
+    this->compile_expr (ast->get_val ());
+    
+    this->cgen->emit_subst ();
+  }
+  
+  
+  
+  void
   compiler::compile_expr (ast_expr *ast)
   {
     switch (ast->get_type ())
       {
+      case AST_NIL:
+        this->compile_nil (static_cast<ast_nil *> (ast));
+        break;
+      
       case AST_INTEGER:
         this->compile_integer (static_cast<ast_integer *> (ast));
         break;
@@ -322,6 +478,18 @@ namespace rho {
       
       case AST_SUM:
         this->compile_sum (static_cast<ast_sum *> (ast));
+        break;
+      
+      case AST_PRODUCT:
+        this->compile_product (static_cast<ast_product *> (ast));
+        break;
+      
+      case AST_LIST:
+        this->compile_list (static_cast<ast_list *> (ast));
+        break;
+      
+      case AST_SUBST:
+        this->compile_subst (static_cast<ast_subst *> (ast));
         break;
       
       default:

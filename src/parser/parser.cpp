@@ -138,6 +138,22 @@ namespace rho {
   
   
   
+  static ast_nil*
+  _parse_nil (parser_state& ps)
+  {
+    auto& toks = ps.toks;
+    
+    token tok = toks.next ();
+    if (tok.type != TOK_NIL)
+      {
+        ps.errs.add (ET_ERROR, "expected nil", tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    return new ast_nil ();
+  }
+  
+  
   static ast_ident*
   _parse_ident (parser_state& ps)
   {
@@ -412,6 +428,87 @@ namespace rho {
       }
     
     // range end
+    std::unique_ptr<ast_expr> end;
+    tok = toks.peek_next ();
+    if (tok.type != TOK_LBRACE && tok.type != TOK_BLOCKIFY)
+      {
+        end.reset (_parse_atom (ps));
+        if (!end.get ())
+          {
+            ps.errs.add (ET_ERROR, "expected end of range after '..'",
+              tok.ln, tok.col, ps.file_name);
+            return nullptr;
+          }
+      }
+    
+    // body
+    tok = toks.peek_next ();
+    if (tok.type != TOK_LBRACE && tok.type != TOK_BLOCKIFY)
+      {
+        ps.errs.add (ET_ERROR, "expected '{'", tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    ast_block *body = _parse_block (ps);
+    if (!body)
+      return nullptr;
+    
+    return new ast_sum (static_cast<ast_ident *> (var.release ()),
+      start.release (), end.release (), body);
+  }
+  
+  
+  
+  static ast_product*
+  _parse_product (parser_state& ps)
+  {
+    auto& toks = ps.toks;
+    
+    token tok = toks.next ();
+    if (tok.type != TOK_PRODUCT)
+      {
+        ps.errs.add (ET_ERROR, "expected 'product'",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    // variable
+    std::unique_ptr<ast_expr> var { _parse_atom (ps) };
+    if (!var.get () || var->get_type () != AST_IDENT)
+      {
+        ps.errs.add (ET_ERROR, "expected identifier after 'product'",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    // <-
+    tok = toks.next ();
+    if (tok.type != TOK_RARROW)
+      {
+        ps.errs.add (ET_ERROR, "expected '<-' after product variable",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    // range start
+    std::unique_ptr<ast_expr> start { _parse_atom (ps) };
+    if (!start.get ())
+      {
+        ps.errs.add (ET_ERROR, "expected start of range after '<-'",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    // ..
+    tok = toks.next ();
+    if (tok.type != TOK_RANGE)
+      {
+        ps.errs.add (ET_ERROR, "expected '..' after start of range",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    // range end
     std::unique_ptr<ast_expr> end { _parse_atom (ps) };
     if (!end.get ())
       {
@@ -432,8 +529,43 @@ namespace rho {
     if (!body)
       return nullptr;
     
-    return new ast_sum (static_cast<ast_ident *> (var.release ()),
+    return new ast_product (static_cast<ast_ident *> (var.release ()),
       start.release (), end.release (), body);
+  }
+  
+  
+  
+  static ast_list*
+  _parse_list (parser_state& ps)
+  {
+    auto& toks = ps.toks;
+    
+    token tok = toks.next ();
+    if (tok.type != TOK_LPAREN_LIST)
+      {
+        ps.errs.add (ET_ERROR, "expected list",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    std::unique_ptr<ast_list> ast { new ast_list () };
+    
+    for (;;)
+      {
+        tok = toks.peek_next ();
+        if (tok.type == TOK_RPAREN)
+          {
+            toks.next ();
+            break;
+          }
+        
+        ast_expr *expr = _parse_expr (ps);
+        if (!expr)
+          return nullptr;
+        ast->add_expr (expr);
+      }
+    
+    return ast.release ();
   }
   
   
@@ -465,6 +597,9 @@ namespace rho {
           return _parse_expr (ps);
         }
       
+      case TOK_NIL:
+        return _parse_nil (ps);
+      
       case TOK_IDENT:
         return _parse_ident (ps);
       
@@ -489,6 +624,9 @@ namespace rho {
       case TOK_SUM:
         return _parse_sum (ps);
       
+      case TOK_PRODUCT:
+        return _parse_product (ps);
+      
       case TOK_SUB:
         {
           toks.next ();
@@ -497,6 +635,9 @@ namespace rho {
             return nullptr;
           return new ast_unop (expr.release (), AST_UNOP_NEGATE);
         }
+      
+      case TOK_LPAREN_LIST:
+        return _parse_list (ps);
       
       default:
         toks.next (); // skip it
@@ -586,6 +727,40 @@ namespace rho {
   
   
   
+  static ast_subst*
+  _parse_subst (std::unique_ptr<ast_expr>& expr, parser_state& ps)
+  {
+    auto& toks = ps.toks;
+    
+    token tok = toks.next ();
+    if (tok.type != TOK_SUBST)
+      {
+        ps.errs.add (ET_ERROR, "expected |.",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    std::unique_ptr<ast_expr> sym { _parse_atom (ps) };
+    if (!sym.get ())
+      return nullptr;
+    
+    tok = toks.next ();
+    if (tok.type != TOK_ASSIGN)
+      {
+         ps.errs.add (ET_ERROR, "expected = after symbol in substitution",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    std::unique_ptr<ast_expr> val { _parse_expr (ps) };
+    if (!val.get ())
+      return nullptr;
+    
+    return new ast_subst (expr.release (), sym.release (), val.release ());
+  }
+  
+  
+  
   static ast_expr*
   _parse_atom_rest (std::unique_ptr<ast_expr>& left, parser_state& ps)
   {
@@ -610,6 +785,10 @@ namespace rho {
       case TOK_BANG:
         toks.next ();
         res.reset (new ast_unop (left.release (), AST_UNOP_FACTORIAL));
+        break;
+      
+      case TOK_SUBST:
+        res.reset (_parse_subst (left, ps));
         break;
       
       default:
@@ -650,6 +829,7 @@ namespace rho {
     { AST_BINOP_POW,      4 },
     { AST_BINOP_MUL,      3 },
     { AST_BINOP_DIV,      3 },
+    { AST_BINOP_IDIV,      3 },
     { AST_BINOP_MOD,      3 },
     { AST_BINOP_ADD,      2 },
     { AST_BINOP_SUB,      2 },
@@ -668,6 +848,7 @@ namespace rho {
     { AST_BINOP_SUB,    ASSOC_LEFT },
     { AST_BINOP_MUL,    ASSOC_LEFT },
     { AST_BINOP_DIV,    ASSOC_LEFT },
+    { AST_BINOP_IDIV,   ASSOC_LEFT },
     { AST_BINOP_MOD,    ASSOC_LEFT },
     { AST_BINOP_POW,    ASSOC_RIGHT },
     { AST_BINOP_EQ,     ASSOC_LEFT },
@@ -689,6 +870,7 @@ namespace rho {
       case TOK_SUB:     return AST_BINOP_SUB;
       case TOK_MUL:     return AST_BINOP_MUL;
       case TOK_DIV:     return AST_BINOP_DIV;
+      case TOK_IDIV:    return AST_BINOP_IDIV;
       case TOK_MOD:     return AST_BINOP_MOD;
       case TOK_CARET:   return AST_BINOP_POW;
       

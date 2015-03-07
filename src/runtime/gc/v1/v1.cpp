@@ -26,7 +26,7 @@
 
 namespace rho {
 
-#define V1_ALLOCS_PER_COLLECT         1
+#define V1_ALLOCS_PER_COLLECT       400
 #define V1_STEPS_PER_COLLECT         10
 
   // GC states
@@ -253,6 +253,12 @@ namespace rho {
       case RHO_SOP:
         this->paint_gray (val->val.sop);
         break;
+      
+      case RHO_EMPTY_CONS: break;
+      case RHO_CONS:
+        this->paint_gray (val->val.cons.car);
+        this->paint_gray (val->val.cons.cdr);
+        break;
       }
   }
   
@@ -267,7 +273,6 @@ namespace rho {
         break;
       
       case SOP_ADD:
-      case SOP_SUB:
       case SOP_MUL:
         for (int i = 0; i < rho_sop_arr_size (sop); ++i)
           this->paint_gray (sop->val.arr.elems[i]);
@@ -323,6 +328,7 @@ namespace rho {
     switch (val->type)
       {
       case RHO_NIL: break;
+      case RHO_EMPTY_CONS: break;
       
       case RHO_INT:
         mpz_clear (val->val.i);

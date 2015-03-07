@@ -116,6 +116,7 @@ namespace rho {
     void emit_push_nil ();
     void emit_push_real (const std::string& num);
     void emit_push_sym (const std::string& num);
+    void emit_push_empty_cons ();
     
     void emit_push_frame (unsigned short locs);
     void emit_pop_frame ();
@@ -130,10 +131,15 @@ namespace rho {
     void emit_sub ();
     void emit_mul ();
     void emit_div ();
+    void emit_idiv ();
     void emit_mod ();
     void emit_pow ();
     void emit_factorial ();
     void emit_negate ();
+    void emit_cons ();
+    void emit_car ();
+    void emit_cdr ();
+    void emit_subst ();
     
     void emit_jmp (int lbl);
     void emit_jt (int lbl);
@@ -151,6 +157,7 @@ namespace rho {
     void emit_cmp_le ();
     void emit_cmp_gt ();
     void emit_cmp_ge ();
+    void emit_cmp_cvg ();
     
     void emit_push_microframe ();
     void emit_pop_microframe ();

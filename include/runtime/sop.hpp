@@ -150,6 +150,19 @@ namespace rho {
   
   
   /* 
+   * Expands out products and positive integer powers.
+   * Only expands the top-most expression.
+   */
+  rho_sop* rho_sop_expand (rho_sop *sop, virtual_machine& vm);
+  
+  /* 
+   * Recursively expands out products and positive integer powers.
+   */
+  rho_sop* rho_sop_expand_all (rho_sop *sop, virtual_machine& vm);
+  
+  
+  
+  /* 
    * Substitutes an expression in the place of the symbol with the given name.
    */
   rho_sop* rho_sop_substitute (rho_sop *dest, const char *sym, rho_sop *src,

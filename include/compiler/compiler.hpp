@@ -48,9 +48,10 @@ namespace rho {
     code_generator *cgen; // wrapped around the module's code section
     
     std::deque<frame *> frms;
+    std::deque<expr_frame *> efrms;
     bool in_repl;
     
-    std::vector<function_info> funcs;
+    std::vector<function_info *> funcs;
     
   public:
     compiler (error_tracker& errs);
@@ -95,6 +96,12 @@ namespace rho {
      * Returns the top-most frame.
      */
     frame& top_frame ();
+    
+    
+    
+    void push_expr_frame (bool last);
+    void pop_expr_frame ();
+    bool can_perform_tail_call ();
     
 //------------------------------------------------------------------------------
     
@@ -167,6 +174,8 @@ namespace rho {
     void compile_builtin_cons (ast_call *ast);
     void compile_builtin_car (ast_call *ast);
     void compile_builtin_cdr (ast_call *ast);
+    void compile_builtin_expand (ast_call *ast);
+    void compile_builtin_expand_all (ast_call *ast);
      
 //------------------------------------------------------------------------------
   };

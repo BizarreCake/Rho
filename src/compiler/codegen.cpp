@@ -313,13 +313,6 @@ namespace rho {
     this->buf.put_byte (0x2B);
   }
   
-  void
-  code_generator::emit_subst ()
-  {
-    this->buf.put_byte (0x2C);
-  }
-  
-  
   
   
   void
@@ -404,6 +397,18 @@ namespace rho {
     this->buf.put_byte (index);
   }
   
+  void
+  code_generator::emit_tail_call ()
+  {
+    this->buf.put_byte (0x45);
+  }
+  
+  void
+  code_generator::emit_this_func ()
+  {
+    this->buf.put_byte (0x46);
+  }
+  
   
   
   void
@@ -468,6 +473,25 @@ namespace rho {
     this->buf.put_byte (0x62);
   }
   
+  
+  
+  void
+  code_generator::emit_subst ()
+  {
+    this->buf.put_byte (0x70);
+  }
+  
+  void
+  code_generator::emit_expand ()
+  {
+    this->buf.put_byte (0x71);
+  }
+  
+  void
+  code_generator::emit_expand_all ()
+  {
+    this->buf.put_byte (0x72);
+  }
   
   
   

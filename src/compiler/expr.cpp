@@ -65,6 +65,33 @@ namespace rho {
   void
   compiler::compile_ident (ast_ident *ast)
   {
+    if (ast->get_name () == "$$")
+      {
+        // $$ - this function
+        
+        // make sure we're inside a function
+        bool in_func = false;
+        frame *frm = &this->top_frame ();
+        while (frm)
+          {
+            if (frm->get_type () == FT_FUNCTION)
+              {
+                in_func = true;
+                break;
+              }
+            frm = frm->get_parent ();
+          }
+        
+        if (!in_func)
+          {
+            this->errs.add (ET_ERROR, "use of '$$' variable outside function");
+            return;
+          }
+        
+        this->cgen->emit_this_func ();
+        return;
+      }
+    
     frame& frm = this->top_frame ();
     variable *var = frm.get_local (ast->get_name ());
     if (!var)
@@ -115,8 +142,10 @@ namespace rho {
         return;
       }
     
+    this->push_expr_frame (false);
     this->compile_expr (ast->get_lhs ());
     this->compile_expr (ast->get_rhs ());
+    this->pop_expr_frame ();
     
     switch (ast->get_op ())
       {
@@ -182,7 +211,9 @@ namespace rho {
   void
   compiler::compile_unop (ast_unop *ast)
   {
+    this->push_expr_frame (false);
     this->compile_expr (ast->get_expr ());
+    this->pop_expr_frame ();
     
     switch (ast->get_op ())
       {
@@ -231,6 +262,7 @@ namespace rho {
   void
   compiler::compile_n (ast_n *ast)
   {
+    this->push_expr_frame (false);
     this->cgen->emit_push_microframe ();
     
     this->compile_expr (ast->get_prec ());
@@ -239,6 +271,7 @@ namespace rho {
     this->compile_block (ast->get_body (), true);
     
     this->cgen->emit_pop_microframe ();
+    this->pop_expr_frame ();
   }
   
   
@@ -246,6 +279,7 @@ namespace rho {
   void
   compiler::compile_boundless_sum (ast_sum *ast)
   {
+    this->push_expr_frame (false);
     this->compile_expr (ast->get_start ());
     
     this->push_frame (FT_BLOCK);
@@ -287,6 +321,7 @@ namespace rho {
     this->cgen->emit_load_loc (sum_var);
     
     this->pop_frame ();
+    this->pop_expr_frame ();
   }
   
   void
@@ -298,6 +333,7 @@ namespace rho {
         return;
       }
     
+    this->push_expr_frame (false);
     this->compile_expr (ast->get_end ());
     this->compile_expr (ast->get_start ());
     
@@ -341,6 +377,7 @@ namespace rho {
     this->cgen->mark_label (lbl_end);
     
     this->pop_frame ();
+    this->pop_expr_frame ();
   }
   
   
@@ -348,6 +385,7 @@ namespace rho {
   void
   compiler::compile_product (ast_product *ast)
   {
+    this->push_expr_frame (false);
     this->compile_expr (ast->get_end ());
     this->compile_expr (ast->get_start ());
     
@@ -391,6 +429,7 @@ namespace rho {
     this->cgen->mark_label (lbl_end);
     
     this->pop_frame ();
+    this->pop_expr_frame ();
   }
   
   
@@ -405,8 +444,10 @@ namespace rho {
         return;
       }
       
+    this->push_expr_frame (false);
     for (size_t i = 0; i < elems.size (); ++i)
       this->compile_expr (elems[i]);
+    this->pop_expr_frame ();
     this->cgen->emit_push_empty_cons ();
     
     for (size_t i = 0; i < elems.size (); ++i)
@@ -418,9 +459,11 @@ namespace rho {
   void
   compiler::compile_subst (ast_subst *ast)
   {
+    this->push_expr_frame (false);
     this->compile_expr (ast->get_expr ());
     this->compile_expr (ast->get_sym ());
     this->compile_expr (ast->get_val ());
+    this->pop_expr_frame ();
     
     this->cgen->emit_subst ();
   }

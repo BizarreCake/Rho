@@ -41,6 +41,8 @@ namespace rho {
     TOK_RBRACE,           // }
     TOK_LPAREN,           // (
     TOK_RPAREN,           // )
+    TOK_LBRACKET,         // [
+    TOK_RBRACKET,         // ]
     TOK_DCOL,             // ::
     TOK_SCOL,             // ;
     TOK_CARET,            // ^
@@ -51,6 +53,7 @@ namespace rho {
     TOK_RARROW,           // <-
     TOK_RANGE,            // ..
     TOK_SUBST,            // |.
+    TOK_THIS_FUNC,        // $$
     
     // operators:
     TOK_ASSIGN,           // =

@@ -55,6 +55,9 @@ namespace rho {
     int arg_index;
     
   public:
+    std::unordered_map<std::string, std::string> extra;
+    
+  public:
     inline frame_type get_type () const { return this->type; }
     inline frame* get_parent () { return this->parent; }
     
@@ -101,6 +104,31 @@ namespace rho {
      * Inserts a new function argument.
      */
     variable* add_arg (const std::string& name);
+  };
+  
+  
+  
+//------------------------------------------------------------------------------
+  
+  /* 
+   * Used to implement tail-call optimizations.
+   */
+  class expr_frame
+  {
+    // true if the expression being compiled is the last one in its logical
+    // block (which will allow for tail-call optimizations).
+    bool last;
+    
+  public:
+    inline bool is_last () const { return this->last; }
+    
+  public:
+    expr_frame ()
+      : last (false)
+      { }
+   
+  public:
+    inline void set_last (bool val) { this->last = val; }
   };
 }
 

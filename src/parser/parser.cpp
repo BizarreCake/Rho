@@ -170,6 +170,23 @@ namespace rho {
   }
   
   
+  
+  static ast_ident*
+  _parse_this_func (parser_state& ps)
+  {
+    auto& toks = ps.toks;
+    
+    token tok = toks.next ();
+    if (tok.type != TOK_THIS_FUNC)
+      {
+        ps.errs.add (ET_ERROR, "expected '$$'", tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    return new ast_ident ("$$");
+  }
+  
+  
   static ast_integer*
   _parse_integer (parser_state& ps)
   {
@@ -570,6 +587,68 @@ namespace rho {
   
   
   
+  static ast_matrix*
+  _parse_matrix (parser_state& ps)
+  {
+    auto& toks = ps.toks;
+    
+    token tok = toks.next ();
+    if (tok.type != TOK_LBRACKET)
+      {
+        ps.errs.add (ET_ERROR, "expected matrix",
+          tok.ln, tok.col, ps.file_name);
+        return nullptr;
+      }
+    
+    std::unique_ptr<ast_matrix> ast { new ast_matrix () };
+    
+    int ri = 0;
+    for (;;)
+      {
+        tok = toks.peek_next ();
+        if (tok.type == TOK_RBRACKET)
+          {
+            toks.next ();
+            break;
+          }
+        
+        ast_expr *expr = _parse_expr (ps);
+        if (!expr)
+          return nullptr;
+        ast->add_expr (ri, expr);
+        
+        tok = toks.next ();
+        if (tok.type == TOK_RBRACKET)
+          break;
+        else if (tok.type == TOK_SCOL)
+          ++ ri;
+        else if (tok.type != TOK_COMMA)
+          {
+            ps.errs.add (ET_ERROR, "expected ',', ';' or ']' inside matrix",
+              tok.ln, tok.col, ps.file_name);
+            return nullptr;
+          }
+      }
+    
+    // make sure row sizes match
+    if (!ast->get_rows ().empty ())
+      {
+        int w = ast->get_rows ()[0]->size ();
+        for (size_t i = 1; i < ast->get_rows ().size (); ++i)
+          if ((int)ast->get_rows ()[i]->size () != w)
+            {
+              ps.errs.add (ET_ERROR, "mismatching row sizes in matrix",
+                tok.ln, tok.col, ps.file_name);
+              return nullptr;
+            }
+      }
+      
+    
+    return ast.release ();
+  }
+  
+  
+  
   static ast_expr*
   _parse_atom_main (parser_state& ps)
   {
@@ -615,6 +694,9 @@ namespace rho {
       case TOK_FUN:
         return _parse_function (ps);
       
+      case TOK_THIS_FUNC:
+        return _parse_this_func (ps);
+      
       case TOK_IF:
         return _parse_if (ps);
       
@@ -638,6 +720,9 @@ namespace rho {
       
       case TOK_LPAREN_LIST:
         return _parse_list (ps);
+      
+      case TOK_LBRACKET:
+        return _parse_matrix (ps);
       
       default:
         toks.next (); // skip it

@@ -39,6 +39,7 @@ namespace rho {
     AST_SET,
     AST_TYPE,
     AST_LIST,
+    AST_MATRIX,
     
     // expressions:
     AST_BINOP,
@@ -349,6 +350,65 @@ namespace rho {
       for (ast_expr *e : this->elems)
         lst->add_expr (static_cast<ast_expr *> (e->clone ()));
       return lst;
+    }
+  };
+  
+  
+  
+  /* 
+   * A grid of elements.
+   * 
+   * Examples:
+   *     [1 2 3; 4 5 6; 7 8 9]
+   *     [0 1 1 2 3 5 8]
+   */
+  class ast_matrix: public ast_expr
+  {
+    std::vector<std::vector<ast_expr *> *> rows;
+    
+    
+  public:
+    virtual ast_type get_type () override { return AST_MATRIX; }
+    
+    inline std::vector<std::vector<ast_expr *> *>& get_rows () { return this->rows; }
+    
+  public:
+    ~ast_matrix ()
+    {
+      for (auto row : this->rows)
+        {
+          for (auto expr : *row)
+            delete expr;
+          delete row;
+        }
+    }
+    
+  public:
+    void
+    add_expr (int row, ast_expr *e)
+    {
+      if ((int)rows.size () <= row)
+        {
+          for (int i = rows.size (); i <= row; ++i)
+            this->rows.push_back (new std::vector<ast_expr *> ());
+        }
+      
+      auto& r = *this->rows[row];
+      r.push_back (e);
+    }
+    
+    virtual ast_node*
+    clone () override
+    {
+      ast_matrix *mx = new ast_matrix ();
+      for (size_t i = 0; i < this->rows.size (); ++i)
+        {
+          auto& row = *this->rows[i];
+          for (auto expr : row)
+            mx->add_expr (i, expr);
+        }
+      
+      return mx;
     }
   };
   

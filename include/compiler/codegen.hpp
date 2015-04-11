@@ -139,7 +139,6 @@ namespace rho {
     void emit_cons ();
     void emit_car ();
     void emit_cdr ();
-    void emit_subst ();
     
     void emit_jmp (int lbl);
     void emit_jt (int lbl);
@@ -150,6 +149,8 @@ namespace rho {
     void emit_call (unsigned char arg_count);
     void emit_load_arg (unsigned char index);
     void emit_store_arg (unsigned char index);
+    void emit_tail_call ();
+    void emit_this_func ();
     
     void emit_cmp_eq ();
     void emit_cmp_ne ();
@@ -162,6 +163,10 @@ namespace rho {
     void emit_push_microframe ();
     void emit_pop_microframe ();
     void emit_set_prec ();
+    
+    void emit_subst ();
+    void emit_expand ();
+    void emit_expand_all ();
     
     void emit_exit ();
 //------------------------------------------------------------------------------

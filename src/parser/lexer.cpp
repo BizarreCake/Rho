@@ -272,9 +272,12 @@ namespace rho {
       
       case '$':
         strm.get ();
-        if (strm.get () == '{')
-          { tok.type = TOK_LBRACE_SET; return true; }
-        strm.unget (2);
+        
+        if (strm.peek () == '{')
+          { strm.get (); tok.type = TOK_LBRACE_SET; return true; }
+        else if (strm.peek () == '$')
+          { strm.get (); tok.type = TOK_THIS_FUNC; return true; }
+        strm.unget ();
         break;
       
       case ':':
@@ -414,6 +417,8 @@ namespace rho {
       
       case '}': strm.get (); tok.type = TOK_RBRACE; return true;
       case ')': strm.get (); tok.type = TOK_RPAREN; return true;
+      case '[': strm.get (); tok.type = TOK_LBRACKET; return true;
+      case ']': strm.get (); tok.type = TOK_RBRACKET; return true;
       case ';': strm.get (); tok.type = TOK_SCOL; return true;
       case ',': strm.get (); tok.type = TOK_COMMA; return true;
       case '+': strm.get (); tok.type = TOK_ADD; return true;

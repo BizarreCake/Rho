@@ -22,14 +22,16 @@
 #include "compiler/asttools.hpp"
 #include <unordered_map>
 
+#include <iostream> // DEBUG
+
 
 namespace rho {
   
   void
   compiler::compile_function (ast_function *ast)
   {
-    this->funcs.emplace_back ();
-    function_info& func = this->funcs.back ();
+    this->funcs.push_back (new function_info ());
+    function_info& func = *this->funcs.back ();
     
     func.name = ast->get_name ();
     func.lbl = this->cgen->create_label ();
@@ -65,7 +67,9 @@ namespace rho {
               if (stmt->get_type () == AST_EXPR_STMT)
                 {
                   ast_expr *expr = (static_cast<ast_expr_stmt *> (stmt))->get_expr ();
+                  this->push_expr_frame (true);
                   this->compile_expr (expr);
+                  this->pop_expr_frame ();
                   this->cgen->emit_return ();
                   break;
                 }
@@ -74,7 +78,9 @@ namespace rho {
                   ast_expr *expr = dynamic_cast<ast_expr *> (stmt);
                   if (expr)
                     {
+                      this->push_expr_frame (true);
                       this->compile_expr (expr);
+                      this->pop_expr_frame ();
                       this->cgen->emit_return ();
                       break;
                     }
@@ -104,6 +110,8 @@ namespace rho {
       BI_CONS,
       BI_CAR,
       BI_CDR,
+      BI_EXPAND,
+      BI_EXPAND_ALL,
     };
   }
   
@@ -114,6 +122,8 @@ namespace rho {
       { "cons", BI_CONS },
       { "car", BI_CAR },
       { "cdr", BI_CDR },
+      { "expand", BI_EXPAND },
+      { "expand_all", BI_EXPAND_ALL },
     };
     
     auto itr = _map.find (name);
@@ -134,18 +144,35 @@ namespace rho {
           case BI_CONS: this->compile_builtin_cons (ast); return;
           case BI_CAR: this->compile_builtin_car (ast); return;
           case BI_CDR: this->compile_builtin_cdr (ast); return;
+          case BI_EXPAND: this->compile_builtin_expand (ast); return;
+          case BI_EXPAND_ALL: this->compile_builtin_expand_all (ast); return;
           
           case BI_UNKNOWN: ;
           }
       }
     
+    frame& frm = this->top_frame ();
+    
+    bool tc = this->can_perform_tail_call ();
+    tc = tc && (ast->get_func ()->get_type () == AST_IDENT
+      && (static_cast<ast_ident *> (ast->get_func ()))->get_name () == "$$");
+    
     // push arguments in reverse order
+    this->push_expr_frame (false);
     auto& args = ast->get_args ();
     for (int i = args.size () - 1; i >= 0; --i)
       this->compile_expr (args[i]);
     
     this->compile_expr (ast->get_func ());
-    this->cgen->emit_call (args.size ());
+    this->pop_expr_frame ();
+    
+    if (tc)
+      {
+        std::cout << "tail call!" << std::endl;
+        this->cgen->emit_tail_call ();
+      }
+    else
+      this->cgen->emit_call (args.size ());
   }
 }
 

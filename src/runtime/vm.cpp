@@ -124,6 +124,8 @@ namespace rho {
     int& sp = this->sp;
     int& bp = this->bp;
     
+    bool tc = false;
+    
     for (;;)
       {
         switch (*ptr++)
@@ -207,6 +209,13 @@ namespace rho {
           // push_frame - allocates a new stack frame.
           case 0x10:
             {
+              if (tc)
+                {
+                  ptr += 2;
+                  tc = false;
+                  break;
+                }
+              
               int locs = *((unsigned short *)ptr);
               ptr += 2;
               
@@ -379,37 +388,6 @@ namespace rho {
             rho_value_unprotect (stack[sp - 2]);
             -- sp;
             break;
-          
-          // subst
-          case 0x2C:
-            {
-              rho_value *expr = RHO_VALUE(stack[sp - 3]);
-              if (expr->type == RHO_SYM)
-                {
-                  expr = rho_value_new_sop (rho_sop_new (expr, *this), *this);
-                }
-              if (expr->type != RHO_SOP)
-                {
-                  sp -= 2;
-                  break;
-                }
-              
-              rho_value *sym = RHO_VALUE(stack[sp - 2]);
-              if (sym->type != RHO_SYM)
-                throw vm_error ("must substitute into symbol");
-              
-              rho_value *val = RHO_VALUE(stack[sp - 1]);
-              rho_sop *sval = (val->type == RHO_SOP)
-                ? val->val.sop : rho_sop_new (val, *this);
-              
-              rho_sop *nsop = rho_sop_substitute (expr->val.sop,
-                sym->val.sym,sval, *this);
-              rho_sop_unprotect (sval);
-              sp -= 3;
-              stack[sp++] = rho_value_new_sop (nsop, *this);
-              rho_value_unprotect (expr);
-            }
-            break;
                     
 //------------------------------------------------------------------------------
           
@@ -500,6 +478,29 @@ namespace rho {
           // store_arg
           case 0x44:
             stack[bp - 4 - *ptr++] = stack[--sp];
+            break;
+          
+          // tail_call
+          case 0x45:
+            {
+              tc = true;
+              rho_value *fn = RHO_VALUE(stack[sp - 1]);
+              ptr = fn->val.fn.code;
+              
+              // replace arguments
+              int argc = GET_INTERNAL(stack[bp - 2]);
+              for (int i = 0; i < argc; ++i)
+                {
+                  stack[bp - 4 - i] = stack[sp - 2 - i];
+                }
+              sp -= argc + 1;
+            }
+            break;
+          
+          // this_func
+          case 0x46:
+            STACK_OVERFLOW_CHECK(1)
+            stack[sp++] = stack[bp - 3];
             break;
           
 //------------------------------------------------------------------------------
@@ -635,6 +636,63 @@ namespace rho {
             PUT_INTERNAL(mfrm + 1, mpz_get_ui (stack[-- sp]->val.i));
           }
           break;
+        
+//------------------------------------------------------------------------------
+          
+          // subst
+          case 0x70:
+            {
+              rho_value *expr = RHO_VALUE(stack[sp - 3]);
+              if (expr->type == RHO_SYM)
+                {
+                  expr = rho_value_new_sop (rho_sop_new (expr, *this), *this);
+                }
+              if (expr->type != RHO_SOP)
+                {
+                  sp -= 2;
+                  break;
+                }
+              
+              rho_value *sym = RHO_VALUE(stack[sp - 2]);
+              if (sym->type != RHO_SYM)
+                throw vm_error ("must substitute into symbol");
+              
+              rho_value *val = RHO_VALUE(stack[sp - 1]);
+              rho_sop *sval = (val->type == RHO_SOP)
+                ? val->val.sop : rho_sop_new (val, *this);
+              
+              rho_sop *nsop = rho_sop_substitute (expr->val.sop,
+                sym->val.sym,sval, *this);
+              rho_sop_unprotect (sval);
+              sp -= 3;
+              stack[sp++] = rho_value_new_sop (nsop, *this);
+              rho_value_unprotect (expr);
+            }
+            break;
+          
+          // expand
+          case 0x71:
+            {
+              if (stack[sp - 1]->type != RHO_SOP)
+                break;
+              
+              stack[sp - 1] = rho_value_new_sop (
+                rho_sop_expand (stack[sp - 1]->val.sop, *this), *this);
+              rho_value_unprotect (stack[sp - 1]);
+            }
+            break;
+          
+          // expand_all
+          case 0x72:
+            {
+              if (stack[sp - 1]->type != RHO_SOP)
+                break;
+              
+              stack[sp - 1] = rho_value_new_sop (
+                rho_sop_expand_all (stack[sp - 1]->val.sop, *this), *this);
+              rho_value_unprotect (stack[sp - 1]);
+            }
+            break;
         
 //------------------------------------------------------------------------------
           

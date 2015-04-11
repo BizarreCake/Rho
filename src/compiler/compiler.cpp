@@ -40,6 +40,10 @@ namespace rho {
     
     for (frame *frm : this->frms)
       delete frm;
+    for (expr_frame *efrm : this->efrms)
+      delete efrm;
+    for (function_info *fi : this->funcs)
+      delete fi;
   }
   
   
@@ -78,6 +82,33 @@ namespace rho {
   compiler::top_frame ()
   {
     return *this->frms.back ();
+  }
+  
+  
+  
+  void
+  compiler::push_expr_frame (bool last)
+  {
+    expr_frame *efrm = new expr_frame ();
+    efrm->set_last (last);
+    this->efrms.push_back (efrm);
+  }
+  
+  void
+  compiler::pop_expr_frame ()
+  {
+    expr_frame *efrm = this->efrms.back ();
+    delete efrm;
+    this->efrms.pop_back ();
+  }
+  
+  bool
+  compiler::can_perform_tail_call ()
+  {
+    if (this->efrms.empty ())
+      return false;
+    
+    return this->efrms.back ()->is_last ();
   }
   
   

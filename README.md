@@ -36,7 +36,6 @@ Take a look at a snippet of Rho, which illustrates what Rho looks like at the mo
 
 ; fib(100);
  => 280571172992510140037611932413038677189525
-fib(
 ```
 
 Here `$` refers to the function being executed.

@@ -18,6 +18,7 @@
 
 #include "compiler/compiler.hpp"
 #include <unordered_map>
+#include <sstream>
 
 
 namespace rho {
@@ -30,6 +31,8 @@ namespace rho {
       
       { "car", &compiler::compile_builtin_car },
       { "cdr", &compiler::compile_builtin_cdr },
+      { "breakpoint", &compiler::compile_builtin_breakpoint },
+      { "print", &compiler::compile_builtin_print },
     };
     
     auto name = std::static_pointer_cast<ast_ident> (expr->get_fun ())->get_value ();
@@ -63,6 +66,30 @@ namespace rho {
     for (auto a : expr->get_args ())
       this->compile_expr (a);
     this->cgen.emit_cdr ();
+  }
+  
+  
+  
+  void
+  compiler::compile_builtin_breakpoint (std::shared_ptr<ast_fun_call> expr)
+  {
+    std::istringstream ss (std::static_pointer_cast<ast_integer> (expr->get_args ()[0])->get_value ());
+    int bp;
+    ss >> bp;
+    
+    this->cgen.emit_breakpoint (bp);
+  }
+  
+  
+  
+  void
+  compiler::compile_builtin_print (std::shared_ptr<ast_fun_call> expr)
+  {
+    // TODO: errors
+    
+    for (auto a : expr->get_args ())
+      this->compile_expr (a);
+    this->cgen.emit_call_builtin (0, expr->get_args ().size ());
   }
 }
 

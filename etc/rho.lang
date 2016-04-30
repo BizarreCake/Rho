@@ -6,9 +6,11 @@
   </metadata>
   <styles>
     <style id="comment" _name="Comment" map-to="def:comment"/>
+    <style id="string" _name="String" map-to="def:string"/>
     <style id="keyword" _name="Keyword" map-to="def:keyword"/>
     <style id="special-constant" _name="Special Constants"  map-to="def:special-constant"/>
     <style id="builtin-function" _name="Builtin Function" map-to="def:builtin"/>
+    <style id="atom" _name="Atom" map-to="def:type"/>
   </styles>
   <definitions>
     <context id="rho">
@@ -29,7 +31,12 @@
 
         <context ref="def:decimal"/>
         <context ref="def:float"/>
-
+        
+        <context id="string" style-ref="string" end-at-line-end="true" class="string" class-disabled="no-spell-check">
+          <start>L?"</start>
+          <end>"</end>
+        </context>
+        
         <context id="keywords" style-ref="keyword">
           <keyword>var</keyword>
           <keyword>fun</keyword>
@@ -43,19 +50,27 @@
           <keyword>export</keyword>
           <keyword>ret</keyword>
           <keyword>namespace</keyword>
+          <keyword>atom</keyword>
+          <keyword>using</keyword>
+          <keyword>let</keyword>
+          <keyword>in</keyword>
         </context>
         
-        <context id="specila-constants" style-ref="special-constant">
+        <context id="special-constants" style-ref="special-constant">
           <keyword>nil</keyword>
+          <keyword>true</keyword>
+          <keyword>false</keyword>
         </context>
 
         <context id="builtin-functions" style-ref="builtin-function">
           <keyword>car</keyword>
           <keyword>cdr</keyword>
-          <keyword>range</keyword>
-          <keyword>map</keyword>
+          <keyword>print</keyword>
         </context>
-
+        
+        <context id="atoms" style-ref="atom">
+          <match>#[a-zA-Z0-9_]+</match>
+        </context>
       </include>
     </context>
   </definitions>

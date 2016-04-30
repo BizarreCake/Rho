@@ -25,7 +25,7 @@
 
 namespace rho {
   
-#define ALLOCS_PER_COLLECTION     5000
+#define ALLOCS_PER_COLLECTION     400
   
   basic_gc::basic_gc (virtual_machine& vm)
     : garbage_collector (vm)
@@ -137,6 +137,8 @@ namespace rho {
       case RHO_EMPTY_LIST:
       case RHO_PVAR:
       case RHO_INTERNAL:
+      case RHO_ATOM:
+      case RHO_STR:
         break;
       
       case RHO_VEC:
@@ -186,7 +188,9 @@ namespace rho {
       }
     
     // place all references in the root set into the gray set.
-    for (rho_value v : this->vm.get_stack (true))
+    auto stk = this->vm.get_stack (true);
+    //std::cout << "GC collect: sp=" << stk.get_sp () << std::endl;
+    for (rho_value v : stk)
       this->paint_gray (v);
     for (auto& gp : this->vm.get_globals ())
       {

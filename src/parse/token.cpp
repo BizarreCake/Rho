@@ -32,6 +32,8 @@ namespace rho {
       {
       case TOK_INTEGER:
       case TOK_IDENT:
+      case TOK_ATOM:
+      case TOK_STRING:
         delete[] tok.val.str;
       
       default: ;
@@ -82,8 +84,10 @@ namespace rho {
       case TOK_INTEGER:         return "<integer>";
       case TOK_IDENT:           return "<ident>";
       case TOK_NIL:             return "nil";
-      case TOK_TRUE:            return "#t";
-      case TOK_FALSE:           return "#f";
+      case TOK_TRUE:            return "true";
+      case TOK_FALSE:           return "false";
+      case TOK_ATOM:            return "<atom>";
+      case TOK_STRING:          return "<string>";
       
       case TOK_VAR:             return "var";
       case TOK_FUN:             return "fun";
@@ -97,6 +101,10 @@ namespace rho {
       case TOK_EXPORT:          return "export";
       case TOK_RET:             return "ret";
       case TOK_NAMESPACE:       return "namespace";
+      case TOK_ATOMK:           return "atom";
+      case TOK_USING:           return "using";
+      case TOK_LET:             return "let";
+      case TOK_IN:              return "in";
       }
     
     return "";

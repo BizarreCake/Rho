@@ -1,0 +1,279 @@
+/*
+ * rholib - Rho's standard library.
+ * Copyright (C) 2016 Jacob Zhitomirsky
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+module streams;
+
+import list;
+
+export (
+  ls:null,
+  ls:cons,
+  ls:lazy_cons,
+  
+  ls:is_null?,
+  ls:is_pair?,
+  ls:is_stream?,
+  
+  ls:car!,
+  ls:cdr!,
+  ls:cdr,
+  ls:index,
+  
+  ls:to_list,
+  
+  ls:relay,
+  ls:constant,
+  ls:map,
+  ls:map2,
+)
+
+
+namespace ls {
+  
+//------------------------------------------------------------------------------
+// Promises
+  
+  atom #promise;
+  atom #eager;
+  atom #lazy;
+  
+  
+  /* 
+   * Returns a promise whose return value is already defined.
+   * Forcing this promised simply returns the specified value.
+   */
+  var mk_eager_promise = fun (val) {
+    ret '(#promise . '(#eager . val));
+  };
+  
+  /* 
+   * Returns a promise whose return value is the return value of the specified
+   * function.
+   */
+  var mk_lazy_promise = fun (f) {
+    ret '(#promise . '(#lazy . f));
+  };
+  
+  
+  
+  var is_promise? = fun (p) {
+    match p {
+      case '(#promise . _) => true;
+      else                 => false;
+    };
+  };
+  
+  
+  
+  /* 
+   * Returns the value of the promise.
+   * Lazy promises are converted into eager promises and their return value
+   * is remembered.
+   */
+  var force_once = fun (p) {
+    match p[1] {
+      case '(#eager . v) => v;
+      case '(#lazy . f) => {
+        (p[1])[0] = #eager;
+        ret ((p[1])[1] = f());
+      };
+    };
+  };
+  
+  var force = fun (p) {
+    if !is_promise?(p)
+      then p
+      else match p[1] {
+        case '(#eager . v) => if is_promise?(v)
+                                then {
+                                  ret (p[1])[1] = $(v);
+                                }
+                                else v;
+        case '(#lazy . _) => {
+          force_once(p);
+          ret $(p);
+        };
+      }
+  };
+
+//------------------------------------------------------------------------------
+  
+  // stream atoms:
+  atom #null;
+  atom #stream_pair;
+  
+  
+  
+  // constructors:
+  
+  /* 
+   * Represents the null stream - an immutable and unique stream.
+   */
+  var null = #null;
+  
+  /* 
+   * Creates a newly-allocated stream containing a promise that, when forced,
+   * returns a pair with :obj: in its car and :strm: in its cdr. 
+   */
+  var cons = fun (obj, strm) {
+    ret mk_eager_promise (
+      '(#stream_pair . '(mk_eager_promise(obj) . mk_eager_promise(strm))));
+  };
+  
+  /* 
+   * Like cons, but does not evaluate the given arguments.
+   */
+  var lazy_cons = fun (obj_f, strm_f) {
+    ret mk_eager_promise (
+      '(#stream_pair . '(mk_lazy_promise(obj_f) . mk_lazy_promise(strm_f))));
+  };
+  
+  
+  
+  // recognizers:
+  
+  var is_null? = fun (s) { ret s == null; };
+  
+  var is_pair? = fun (s) {
+    match s {
+      case '(#promise . _) => match force(s) {
+                                case '(#stream_pair . _) => true;
+                                else                     => false;
+                              };
+      else => false;
+    };
+  };
+  
+  var is_stream? = fun (s) {
+    if is_null?(s)
+      then true
+      else if is_pair?(s)
+        then true
+        else false;
+  };
+  
+  
+  
+  // accessors:
+  
+  /* 
+   * Returns the object stored in the car of the specified stream.
+   * This causes the object stored there to be evaluated if it has not yet been.
+   */
+  var car! = fun (s) {
+    match force(s) {
+      case '(#stream_pair . '(c . _)) => force(c);
+      else => nil;
+    }
+  };
+  
+  /* 
+   * Returns the stream stored in the cdr of the specified stream.
+   * This does not force the promise containing the stream stored in the cdr
+   * of the stream.
+   */
+  var cdr! = fun (s) {
+    match force(s) {
+      case '(#stream_pair . '(_ . c)) => force(c);
+      else => nil;
+    };
+  };
+  
+  /* 
+   * Returns the tail of the specified stream without evaluating the stream.
+   */
+  var cdr = fun (s) {
+    ret mk_lazy_promise(fun () {
+      ret cdr!(s);
+    });
+  };
+  
+  /* 
+   * Returns the element located at index :i: in the given stream.
+   */
+  var index = fun (s, i) {
+    (fun (s, c) {
+      //print("index: {0}" % c); 
+      car!(s);
+      if c == i
+        then car!(s)
+        else $(cdr!(s), c + 1);
+    })(s, 0);
+  };
+  
+  
+  
+  // conversions:
+  
+  /* 
+   * Returns a list containing :count: amount of elements in the specified
+   * stream.
+   */
+  var to_list = fun (s, count) {
+    (fun (s, i, acc) {
+      if i == count
+        then acc
+        else $(cdr!(s), i + 1, '(car!(s) . acc));
+    })(s, 0, '());
+  };
+  
+  
+  
+  // derived functions:
+  
+  /* 
+   * Returns a promise that will return the stream returned by the specified
+   * function.
+   */
+  var relay = fun (f) {
+    ret mk_lazy_promise(f);
+  };
+  
+  
+  /* 
+   * Returns a new stream that repeats the specified value in succession
+   * forever.
+   */
+  var constant = fun (c) {
+    var s = cons(c, relay(fun () { ret s; }));
+    ret s;
+  };
+  
+  
+  /* 
+   * Returns a stream that applies :f: element-wise to the elements in the
+   * specified stream.
+   */
+  var map = fun (f, s) {
+    breakpoint(2);
+    ret lazy_cons(
+      fun () { breakpoint(3); ret f(car!(s)); },
+      fun () { breakpoint(4); ret map(f, cdr!(s)); });
+  };
+  
+  /*
+   * Returns a stream that applies :f: element-wise to the elements in the
+   * two specified streams.
+   */
+  var map2 = fun (f, s1, s2) {
+    ret lazy_cons(
+      fun () { ret f(car!(s1), car!(s2)); },
+      fun () { ret map2(f, cdr!(s1), cdr!(s2)); });
+  };
+}
+

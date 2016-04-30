@@ -20,6 +20,8 @@
 #include "runtime/gc/gc.hpp"
 #include <stdexcept>
 #include <sstream>
+#include <cstring>
+#include <vector>
 
 
 namespace rho {
@@ -33,6 +35,7 @@ namespace rho {
       case RHO_PVAR:
       case RHO_NIL:
       case RHO_BOOL:
+      case RHO_ATOM:
         return false;
       
       case RHO_UPVAL:
@@ -41,6 +44,7 @@ namespace rho {
       case RHO_FUN:
       case RHO_EMPTY_LIST:
       case RHO_CONS:
+      case RHO_STR:
         return true;
       }
     
@@ -72,6 +76,7 @@ namespace rho {
       case RHO_INTERNAL:
       case RHO_BOOL:
       case RHO_UPVAL:
+      case RHO_ATOM:
         break;
       
       case RHO_INTEGER:
@@ -84,6 +89,10 @@ namespace rho {
       
       case RHO_FUN:
         delete[] v->val.fn.env;
+        break;
+      
+      case RHO_STR:
+        delete[] v->val.s.str;
         break;
       }
   }
@@ -106,6 +115,8 @@ namespace rho {
       case RHO_PVAR:
       case RHO_INTEGER:
       case RHO_INTERNAL:
+      case RHO_ATOM:
+      case RHO_STR:
         break;
       
       case RHO_UPVAL:
@@ -130,6 +141,32 @@ namespace rho {
   
   
   
+  static std::string
+  _escape_string (const char *str, long len)
+  {
+    std::string res;
+    res.push_back ('"');
+    
+    for (long i = 0; i < len; ++i)
+      {
+        switch (str[i])
+          {
+          case '"': res.append ("\\\""); break;
+          case '\n': res.append ("\\n"); break;
+          case '\r': res.append ("\\r"); break;
+          case '\t': res.append ("\\t"); break;
+          case '\\': res.append ("\\\\"); break;
+          case '\0': res.append ("\\0"); break;
+          
+          default:
+            res.push_back (str[i]);
+          }
+      }
+    
+    res.push_back ('"');
+    return res;
+  }
+  
   /* 
    * Returns a textual representation of the specified Rho value.
    */
@@ -145,7 +182,14 @@ namespace rho {
         return "'()";
       
       case RHO_BOOL:
-        return v.val.b ? "#t" : "#f";
+        return v.val.b ? "true" : "false";
+      
+      case RHO_ATOM:
+        {
+          std::ostringstream ss;
+          ss << "<atom #" << v.val.i32 << ">";
+          return ss.str ();
+        }
       
       case RHO_CONS:
         {
@@ -201,6 +245,9 @@ namespace rho {
           ss << "]";
           return ss.str ();
         }
+      
+      case RHO_STR:
+        return _escape_string (v.val.gc->val.s.str, v.val.gc->val.s.len);
       
       default:
         throw std::runtime_error ("rho_value_str: unhandled value type");
@@ -326,6 +373,88 @@ namespace rho {
     
     v.val.gc = g;
     return v;
+  }
+  
+  rho_value
+  rho_value_make_string (const char *str, long len, garbage_collector& gc)
+  {
+    rho_value v;
+    v.type = RHO_STR;
+    
+    auto g = gc.alloc_protected ();
+    g->type = RHO_STR;
+    g->val.s.len = len;
+    g->val.s.str = new char [len + 1];
+    std::memcpy (g->val.s.str, str, len);
+    g->val.s.str[len] = '\0';
+    
+    v.val.gc = g;
+    return v;
+  }
+  
+  
+  
+  static std::string
+  _format_string (gc_value *str, rho_value& args_)
+  {
+    std::ostringstream ss;
+    
+    std::vector<rho_value> args;
+    if (args_.type == RHO_CONS)
+      {
+        auto p = args_;
+        while (p.val.gc->val.p.snd.type != RHO_EMPTY_LIST)
+          {
+            args.push_back (p.val.gc->val.p.fst);
+            p = p.val.gc->val.p.snd;
+          }
+        args.push_back (p.val.gc->val.p.fst);
+      }
+    else
+      args.push_back (args_);
+    
+    auto& s = str->val.s;
+    for (long i = 0; i < s.len; ++i)
+      {
+        if (s.str[i] == '{')
+          {
+            ++ i;
+            
+            int idx = 0;
+            while (i < s.len)
+              {
+                if (s.str[i] >= '0' && s.str[i] <= '9')
+                  {
+                    idx = (idx * 10) + (s.str[i] - '0');
+                    ++ i;
+                  }
+                else if (s.str[i] == '}')
+                  break;
+                else
+                  throw vm_error ("invalid format string");
+              }
+            if (i == s.len || s.str[i] != '}')
+              throw vm_error ("invalid format string");
+            
+            if (idx >= (int)args.size ())
+              throw vm_error ("index out of range in format string");
+            
+            if (args[idx].type == RHO_STR)
+              ss << args[idx].val.gc->val.s.str;
+            else
+              ss << rho_value_str (args[idx]);
+          }
+        else if (s.str[i] == '\\')
+          {
+            if (++i == s.len)
+              throw vm_error ("invalid format string");
+            ss << s.str[i];
+          }
+        else
+          ss << s.str[i];
+      }
+    
+    return ss.str ();
   }
   
   
@@ -493,6 +622,14 @@ namespace rho {
           }
         break;
       
+      case RHO_STR:
+        {
+          auto str = _format_string (lhs.val.gc, rhs);
+          auto res = rho_value_make_string (str.c_str (), str.length (), gc);
+          return res;
+        }
+        break;
+      
       default:
         return rho_value_make_nil ();
       }
@@ -505,6 +642,28 @@ namespace rho {
   {
     switch (lhs.type)
       {
+      case RHO_BOOL:
+        switch (rhs.type)
+          {
+          case RHO_BOOL:
+            return lhs.val.b == rhs.val.b;
+          
+          default:
+            return false;
+          }
+        break;
+      
+      case RHO_ATOM:
+        switch (rhs.type)
+          {
+          case RHO_ATOM:
+            return lhs.val.i32 == rhs.val.i32;
+          
+          default:
+            return false;
+          }
+        break;
+      
       case RHO_INTEGER:
         switch (rhs.type)
           {
@@ -519,6 +678,32 @@ namespace rho {
       
       case RHO_EMPTY_LIST:
         return rhs.type == lhs.type;
+      
+      case RHO_STR:
+        switch (rhs.type)
+          {
+          case RHO_STR:
+            {
+              auto& s1 = lhs.val.gc->val.s;
+              auto& s2 = rhs.val.gc->val.s;
+              return s1.len == s2.len && std::memcpy (s1.str, s2.str, s1.len) == 0;
+            }
+          
+          default:
+            return false;
+          }
+        break;
+      
+      case RHO_CONS:
+        switch (rhs.type)
+          {
+          case RHO_CONS:
+            return lhs.val.gc == rhs.val.gc;
+          
+          default:
+            return false;
+          }
+        break;
       
       default:
         return false;
@@ -596,6 +781,9 @@ namespace rho {
       case RHO_EMPTY_LIST:
         return true;
       
+      case RHO_STR:
+        return v.val.gc->val.s.len == 0;
+      
       case RHO_BOOL:
         return !v.val.b;
       
@@ -619,7 +807,11 @@ namespace rho {
       case RHO_CONS:
       case RHO_UPVAL:
       case RHO_VEC:
+      case RHO_STR:
         return lhs.val.gc == rhs.val.gc;
+      
+      case RHO_ATOM:
+        return lhs.val.i32 == rhs.val.i32;
       
       case RHO_BOOL:
         return lhs.val.b == rhs.val.b;
@@ -656,11 +848,21 @@ namespace rho {
     
     switch (pat.type)
       {
+      case RHO_ATOM:
+        return pat.val.i32 == val.val.i32;
+      
       case RHO_INTEGER:
         return mpz_cmp (pat.val.gc->val.i, val.val.gc->val.i) == 0;
       
       case RHO_BOOL:
         return pat.val.b == val.val.b;
+      
+      case RHO_STR:
+        {
+          auto& s1 = pat.val.gc->val.s;
+          auto& s2 = val.val.gc->val.s;
+          return s1.len == s2.len && std::memcpy (s1.str, s2.str, s1.len) == 0;
+        }
       
       case RHO_NIL:
       case RHO_EMPTY_LIST:

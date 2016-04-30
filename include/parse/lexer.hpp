@@ -122,7 +122,9 @@ namespace rho {
   private:
     token read_token ();
     bool try_read_punctuation (token& tok);
+    bool try_read_string (token& tok);
     bool try_read_integer (token& tok);
+    bool try_read_atom (token& tok);
     bool try_read_ident (token& tok);
     
     void skip_whitespace ();

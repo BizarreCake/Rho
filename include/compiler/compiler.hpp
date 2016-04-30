@@ -22,9 +22,7 @@
 #include "parse/ast.hpp"
 #include "linker/module.hpp"
 #include "compiler/code_generator.hpp"
-#include "compiler/variable.hpp"
 #include "compiler/scope.hpp"
-#include "compiler/fun.hpp"
 #include "compiler/errors.hpp"
 #include "compiler/module_store.hpp"
 #include <memory>
@@ -65,11 +63,10 @@ namespace rho {
   class compiler
   {
     code_generator cgen;
-    std::stack<var_frame> var_frames;
-    std::stack<scope_frame> scope_frames;
-    std::stack<func_frame> func_frames;
     std::stack<expr_frame> expr_frames;
     error_list errs;
+    std::shared_ptr<var_analysis> van;
+    std::shared_ptr<ast_program> prg_ast;
     
     bool pat_on; // true if compiling a pattern
     int pat_pvc;
@@ -80,7 +77,6 @@ namespace rho {
     std::string mident;
     std::shared_ptr<module> mod;  // module being compiled
     module_store& mstore;
-    int mods_off;
     std::unordered_map<std::string, name_import_t> name_imps;
     
     std::vector<std::string> idirs;
@@ -92,6 +88,9 @@ namespace rho {
     int glob_count;
     std::unordered_map<std::string, int> known_globs;
     int next_glob_idx;
+  
+    std::unordered_set<std::string> atoms;
+    std::unordered_set<std::string> known_atoms;
   
   public:
     inline error_list& get_errors () { return this->errs; }
@@ -129,16 +128,22 @@ namespace rho {
     void dont_alloc_globals ();
     void add_known_global (const std::string& name, int idx);
     
+    void add_known_atom (const std::string& name);
+    
   private:
     void push_expr_frame (bool last);
     void pop_expr_frame ();
     bool can_perform_tail_call ();
     
-    std::string qualify_name (const std::string& name, bool check_exists = true);
+    std::string qualify_name (const std::string& name,
+                              std::shared_ptr<scope_frame> scope);
+    std::string qualify_atom_name (const std::string& name,
+                                   bool check_exists = true);
     
   private:
     void compile_program (std::shared_ptr<ast_program> program);
     
+    void compile_empty_stmt (std::shared_ptr<ast_empty_stmt> stmt);
     void compile_expr_stmt (std::shared_ptr<ast_expr_stmt> stmt);
     void compile_var_def (std::shared_ptr<ast_var_def> stmt);
     void compile_module (std::shared_ptr<ast_module> stmt);
@@ -146,10 +151,15 @@ namespace rho {
     void compile_export (std::shared_ptr<ast_export> stmt);
     void compile_ret (std::shared_ptr<ast_ret> stmt);
     void compile_namespace (std::shared_ptr<ast_namespace> stmt);
+    void compile_atom_def (std::shared_ptr<ast_atom_def> stmt);
+    void compile_stmt_block (std::shared_ptr<ast_stmt_block> stmt);
+    void compile_using (std::shared_ptr<ast_using> stmt);
     void compile_stmt (std::shared_ptr<ast_stmt> stmt);
     
     void compile_integer (std::shared_ptr<ast_integer> expr);
     void compile_ident (std::shared_ptr<ast_ident> expr);
+    void compile_atom (std::shared_ptr<ast_atom> expr);
+    void compile_string (std::shared_ptr<ast_string> expr);
     void compile_nil (std::shared_ptr<ast_nil> expr);
     void compile_bool (std::shared_ptr<ast_bool> expr);
     void compile_unop (std::shared_ptr<ast_unop> expr);
@@ -162,12 +172,23 @@ namespace rho {
     void compile_match (std::shared_ptr<ast_match> expr);
     void compile_vector (std::shared_ptr<ast_vector> expr);
     void compile_subscript (std::shared_ptr<ast_subscript> expr);
+    void compile_expr_block (std::shared_ptr<ast_expr_block> expr);
+    void compile_let (std::shared_ptr<ast_let> expr);
     void compile_expr (std::shared_ptr<ast_expr> expr);
+    
+    void compile_assign (std::shared_ptr<ast_expr> lhs,
+                         std::shared_ptr<ast_expr> rhs);
+    void compile_assign_to_ident (std::shared_ptr<ast_ident> lhs,
+                                  std::shared_ptr<ast_expr> rhs);
+    void compile_assign_to_subscript (std::shared_ptr<ast_subscript> lhs,
+                                      std::shared_ptr<ast_expr> rhs);
     
     
     bool compile_builtin (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_car (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_cdr (std::shared_ptr<ast_fun_call> expr);
+    void compile_builtin_breakpoint (std::shared_ptr<ast_fun_call> expr);
+    void compile_builtin_print (std::shared_ptr<ast_fun_call> expr);
   };
 }
 

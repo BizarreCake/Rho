@@ -34,6 +34,7 @@ namespace rho {
     reloc_type type;
     int lbl;
     std::string mname;
+    std::string val;
   };
   
   
@@ -67,6 +68,7 @@ namespace rho {
     std::vector<reloc_info> rels;
     std::string rel_mname;
     reloc_type rel_type;
+    std::string rel_val;
     
   public:
     inline unsigned char* data () { return this->buf.data (); }
@@ -134,6 +136,10 @@ namespace rho {
     rel_set_type (reloc_type type)
       { this->rel_type = type; }
     
+    void
+    rel_set_val (const std::string& val)
+      { this->rel_val = val; }
+    
   public:
     void emit_nop ();
     void emit_push_int32 (int val);
@@ -167,7 +173,7 @@ namespace rho {
     void emit_set_local (int idx);
     void emit_tail_call ();
     void emit_get_fun ();
-    void emit_close (unsigned char upvalc);
+    void emit_close (unsigned char localc);
     void emit_ivec_get (int idx);
     
     void emit_cmp_eq ();
@@ -190,21 +196,25 @@ namespace rho {
     void emit_push_pvar (int pv);
     void emit_match (int loff);
     
-    void emit_call_builtin (int index);
+    void emit_call_builtin (int index, unsigned char argc);
     
     void emit_push_sint (unsigned short val);
     void emit_push_nils (unsigned char count);
     void emit_push_true ();
     void emit_push_false ();
+    void emit_push_atom (int val, bool emit_reloc = true);
+    void emit_push_cstr (const std::string& str);
     
     void emit_mk_vec (unsigned short count);
-    void emit_vec_get ();
     void emit_vec_get_hard (unsigned short index);
+    void emit_vec_get ();
+    void emit_vec_set ();
     
     void emit_alloc_globals (unsigned short page, unsigned short count, bool emit_reloc = true);
     void emit_get_global (unsigned short page, unsigned short idx, bool emit_reloc = true);
     void emit_set_global (unsigned short page, unsigned short idx, bool emit_reloc = true);
     
+    void emit_breakpoint (int bp);
     void emit_exit ();
   };
 }

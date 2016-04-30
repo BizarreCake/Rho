@@ -43,6 +43,11 @@ namespace rho {
         case AST_IMPORT:
         case AST_EXPORT:
         case AST_BOOL:
+        case AST_ATOM:
+        case AST_ATOM_DEF:
+        case AST_EMPTY_STMT:
+        case AST_STRING:
+        case AST_USING:
           break;
         
         case AST_EXPR_STMT:
@@ -53,8 +58,8 @@ namespace rho {
         case AST_EXPR_BLOCK:
           {
             auto cn = std::static_pointer_cast<ast_expr_block> (node);
-            for (auto e : cn->get_exprs ())
-              _traverse_dfs_node (e, fn);
+            for (auto s : cn->get_stmts ())
+              _traverse_dfs_node (s, fn);
           }
           break;
         
@@ -179,6 +184,15 @@ namespace rho {
               _traverse_dfs_node (s, fn);
           }
           break;
+        
+        case AST_LET:
+          {
+            auto cn = std::static_pointer_cast<ast_let> (node);
+            for (auto& p : cn->get_defs ())
+              _traverse_dfs_node (p.second, fn);
+            _traverse_dfs_node (cn->get_body (), fn);
+          }
+          break;
         }
     }
     
@@ -291,6 +305,48 @@ namespace rho {
         }
       
       return vars;
+    }
+    
+    
+    
+    static void
+    _atom_defs_search_namespace (std::shared_ptr<ast_namespace> node,
+                                 std::vector<std::string>& atoms,
+                                 std::string curr_ns)
+    {
+      if (curr_ns.empty ())
+        curr_ns = node->get_name ();
+      else
+        curr_ns += ":" + node->get_name ();
+      
+      for (auto s : node->get_body ()->get_stmts ())
+        {
+          if (s->get_type () == AST_ATOM_DEF)
+            atoms.push_back (
+              curr_ns + ":"
+                + std::static_pointer_cast<ast_atom_def> (s)->get_name ());
+          else if (s->get_type () == AST_NAMESPACE)
+            _atom_defs_search_namespace (std::static_pointer_cast<ast_namespace> (s), atoms, curr_ns);
+        }
+    }
+    
+    /* 
+     * Extracts top-level variable definitions from the specified AST program.
+     */
+    std::vector<std::string>
+    extract_atom_defs (std::shared_ptr<ast_program> node)
+    {
+      std::vector<std::string> atoms;
+      for (auto s : node->get_stmts ())
+        {
+          if (s->get_type () == AST_ATOM_DEF)
+            atoms.push_back (
+              std::static_pointer_cast<ast_atom_def> (s)->get_name ());
+          else if (s->get_type () == AST_NAMESPACE)
+            _atom_defs_search_namespace (std::static_pointer_cast<ast_namespace> (s), atoms, "");
+        }
+      
+      return atoms;
     }
   }
 }

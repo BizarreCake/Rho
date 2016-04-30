@@ -21,7 +21,6 @@
 
 #include "linker/program.hpp"
 #include "runtime/value.hpp"
-#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -35,17 +34,6 @@ namespace rho {
   class garbage_collector;
   class virtual_machine;
   
-  
-  /* 
-   * Thrown by the virtual machine in case of a fatal error.
-   */
-  class vm_error: public std::runtime_error
-  {
-  public:
-    vm_error (const std::string& str)
-      : std::runtime_error (str)
-      { }
-  };
   
   
 #define IS_INTERNAL(V)  ((V).type == RHO_INTERNAL)
@@ -81,6 +69,9 @@ namespace rho {
     rho_value *stack;
     int sp;
     bool refs_only;
+    
+  public:
+    inline int get_sp () const { return this->sp; }
     
   private:
     stack_provider (rho_value *stack, int sp, bool refs_only);

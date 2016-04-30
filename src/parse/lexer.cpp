@@ -301,22 +301,60 @@ namespace rho {
             return false;
           }
         return true;
-      
-      case '#':
-        this->strm->get ();
-        switch (this->strm->peek ())
-          {
-          case 't': this->strm->get (); tok.type = TOK_TRUE; return true;
-          case 'f': this->strm->get (); tok.type = TOK_FALSE; return true;
-          
-          default:
-            this->strm->unget ();
-            break;
-          }
       }
 
     return false;
   }
+  
+  
+  bool
+  lexer::try_read_string (token& tok)
+  {
+    int c = this->strm->peek ();
+    if (c != '"')
+      return false;
+    this->strm->get ();
+    
+    std::string str;
+    for (;;)
+      {
+        c = this->strm->get ();
+        if (c == '"')
+          break;
+        else if (c == EOF)
+          return false;
+        else if (c == '\\')
+          {
+            c = this->strm->get ();
+            switch (c)
+              {
+              case '"': str.push_back ('"'); break;
+              case 'n': str.push_back ('\n'); break;
+              case 't': str.push_back ('\t'); break;
+              case 'b': str.push_back ('\b'); break;
+              case 'r': str.push_back ('\r'); break;
+              case '0': str.push_back ('\0'); break;
+              case '\\': str.push_back ('\\'); break;
+              
+              default:
+                // TODO: issue warning
+                str.push_back (c);
+                break;
+              
+              case EOF:
+                return false;
+              }
+          }
+        else
+          str.push_back (c);
+      }
+    
+    tok.type = TOK_STRING;
+    tok.val.str = new char [str.size () + 1];
+    std::strcpy (tok.val.str, str.c_str ());
+    return true;
+  }
+  
   
   bool
   lexer::try_read_integer (token& tok)
@@ -344,7 +382,7 @@ namespace rho {
   
   static inline bool
   _is_ident_char (int c)
-    { return _is_ident_first_char (c) || std::isdigit (c); }
+    { return _is_ident_first_char (c) || std::isdigit (c) || c == '?' || c == '!'; }
   
   
   static token_type
@@ -364,6 +402,12 @@ namespace rho {
       { "export", TOK_EXPORT },
       { "ret", TOK_RET },
       { "namespace", TOK_NAMESPACE },
+      { "true", TOK_TRUE },
+      { "false", TOK_FALSE },
+      { "atom", TOK_ATOMK },
+      { "using", TOK_USING },
+      { "let", TOK_LET },
+      { "in", TOK_IN },
     };
     
     auto itr = _map.find (str);
@@ -380,6 +424,7 @@ namespace rho {
     if (!_is_ident_first_char (c))
       return false;
     
+    bool is_atom = false;
     int ccol = 0;
     std::string str;
     str.push_back (this->strm->get ());
@@ -397,20 +442,43 @@ namespace rho {
               return false;
             str.push_back (this->strm->get ());
           }
+        else if (c == '#' && ccol == 1)
+          {
+            str.push_back (this->strm->get ());
+            is_atom = true;
+          }
         else
           break;
       }
-    while (_is_ident_char (this->strm->peek ()) )
-      str.push_back (this->strm->get ());
     
     tok.type = _check_keyword (str);
     if (tok.type == TOK_INVALID)
       {
-        tok.type = TOK_IDENT;
+        tok.type = is_atom ? TOK_ATOM : TOK_IDENT;
         tok.val.str = new char [str.size () + 1];
         std::strcpy (tok.val.str, str.c_str ());
       }
     
+    return true;
+  }
+  
+  
+  
+  bool
+  lexer::try_read_atom (token& tok)
+  {
+    int c = this->strm->peek ();
+    if (c != '#')
+      return false;
+    
+    std::string str;
+    str.push_back (this->strm->get ());
+    while (_is_ident_char (this->strm->peek ()))
+      str.push_back (this->strm->get ());
+    
+    tok.type = TOK_ATOM;
+    tok.val.str = new char [str.size () + 1];
+    std::strcpy (tok.val.str, str.c_str ());
     return true;
   }
   
@@ -437,7 +505,9 @@ namespace rho {
     { this->ws_skipped = 0; return tok; }
     
     TRY_READ (punctuation)
+    TRY_READ (string)
     TRY_READ (integer)
+    TRY_READ (atom)
     TRY_READ (ident)
     
     return tok;

@@ -36,9 +36,11 @@ namespace rho {
     rel.lbl = lbl;
     rel.mname = this->rel_mname;
     rel.type = this->rel_type;
+    rel.val = this->rel_val;
     
     this->rels.push_back (rel);
     
+    this->rel_val.clear ();
     this->rel_mname.clear ();
     this->rel_type = REL_GP;
   }
@@ -457,10 +459,10 @@ namespace rho {
   }
   
   void
-  code_generator::emit_close (unsigned char upvalc)
+  code_generator::emit_close (unsigned char localc)
   {
     this->put_byte (0x2D);
-    this->put_byte (upvalc);
+    this->put_byte (localc);
   }
   
   void
@@ -583,10 +585,11 @@ namespace rho {
   
   
   void
-  code_generator::emit_call_builtin (int index)
+  code_generator::emit_call_builtin (int index, unsigned char argc)
   {
     this->put_byte (0x70);
     this->put_short (index);
+    this->put_byte (argc);
   }
   
   
@@ -617,6 +620,24 @@ namespace rho {
     this->put_byte (0x83);
   }
   
+  void
+  code_generator::emit_push_atom (int val, bool emit_reloc)
+  {
+    this->put_byte (0x84);
+    int lbl = this->make_and_mark_label ();
+    this->put_int (val);
+    
+    if (emit_reloc)
+      this->add_reloc (lbl);
+  }
+  
+  void
+  code_generator::emit_push_cstr (const std::string& str)
+  {
+    this->put_byte (0x85);
+    this->put_cstr (str);
+  }
+  
   
   
   void
@@ -627,16 +648,21 @@ namespace rho {
   }
   
   void
-  code_generator::emit_vec_get ()
+  code_generator::emit_vec_get_hard (unsigned short index)
   {
     this->put_byte (0x91);
+    this->put_short (index);
   }
   
   void
-  code_generator::emit_vec_get_hard (unsigned short index)
+  code_generator::emit_vec_get ()
   {
     this->put_byte (0x92);
-    this->put_short (index);
+  }
+  void
+  code_generator::emit_vec_set ()
+  {
+    this->put_byte (0x93);
   }
   
   
@@ -681,6 +707,13 @@ namespace rho {
   }
   
   
+  
+  void
+  code_generator::emit_breakpoint (int bp)
+  {
+    this->put_byte (0xF0);
+    this->put_int (bp);
+  }
   
   void
   code_generator::emit_exit ()

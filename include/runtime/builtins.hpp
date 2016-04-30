@@ -27,7 +27,7 @@ namespace rho {
   struct rho_value;
   
   
-  //rho_value* rho_builtin_range (rho_value *params, virtual_machine& vm);
+  rho_value rho_builtin_print (rho_value& p, virtual_machine& vm);
 }
 
 #endif

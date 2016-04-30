@@ -65,6 +65,11 @@ namespace rho {
      * Extracts top-level variable definitions from the specified AST program.
      */
     std::vector<std::string> extract_global_defs (std::shared_ptr<ast_program> node);
+    
+    /* 
+     * Extracts top-level atom definitions from the specified AST program.
+     */
+    std::vector<std::string> extract_atom_defs (std::shared_ptr<ast_program> node);
   };
 }
 

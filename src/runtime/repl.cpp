@@ -94,6 +94,9 @@ namespace rho {
                  const std::string& full_path, const std::string& dir_path,
                  std::stack<module_location>& parse_work)
   {
+    if (!full_path.empty () && this->mstore.contains (get_module_identifier (full_path)))
+      return true;
+    
     std::string rpath = full_path;
     
     // tokenize
@@ -140,7 +143,7 @@ namespace rho {
     ent.mname = mname;
     
     // enqueue all imported modules to be parsed.
-    auto imps = rho::ast_tools::extract_imports (p);
+    auto imps = ast_tools::extract_imports (p);
     for (auto& m : imps)
       {
         try
@@ -193,6 +196,7 @@ namespace rho {
       }
     
     this->handle_imports_pre ();
+    this->handle_usings ();
     
     // next compile all parsed AST modules
     std::vector<std::shared_ptr<rho::module>> mods;
@@ -235,6 +239,8 @@ namespace rho {
     lnk.set_next_mod_idx (this->next_mod);
     for (auto km : this->mods)
       lnk.add_known_module (km.first, km.second);
+    for (auto p : this->atoms)
+      lnk.add_atom (p.first, p.second);
     for (auto m : mods)
       lnk.add_module (m);
     auto prg = lnk.link ();
@@ -242,6 +248,7 @@ namespace rho {
     
     this->handle_globals ();
     this->handle_imports (lnk);
+    this->handle_atoms (lnk);
     
     // run
     ++ this->run_num;
@@ -251,6 +258,37 @@ namespace rho {
   }
   
   
+  
+  void
+  rho_repl::handle_usings ()
+  {
+    auto p = this->mstore.retrieve ("#this#").ast;
+    
+    std::vector<std::string> new_u_ns;
+    std::vector<std::pair<std::string, std::string>> new_u_aliases;
+    
+    for (auto s : p->get_stmts ())
+      if (s->get_type () == AST_USING)
+        {
+          auto cn = std::static_pointer_cast<ast_using> (s);
+          if (cn->get_alias ().empty ())
+            new_u_ns.push_back (cn->get_namespace ());
+          else
+            new_u_aliases.push_back (std::make_pair (cn->get_alias (), cn->get_namespace ()));
+        }
+    
+    // re-add using statements
+    auto& stmts = p->get_stmts ();
+    for (auto& ns : this->u_ns)
+      stmts.insert (stmts.begin (), std::shared_ptr<ast_using> (
+        new ast_using (ns)));
+    for (auto& p : this->u_aliases)
+      stmts.insert (stmts.begin (), std::shared_ptr<ast_using> (
+        new ast_using (p.second, p.first)));
+    
+    this->u_ns.insert (this->u_ns.end (), new_u_ns.begin (), new_u_ns.end ());
+    this->u_aliases.insert (this->u_aliases.end (), new_u_aliases.begin (), new_u_aliases.end ());
+  }
   
   void
   rho_repl::handle_globals ()
@@ -298,6 +336,20 @@ namespace rho {
   }
   
   
+  void
+  rho_repl::handle_atoms (linker& lnk)
+  {
+    auto p = this->mstore.retrieve ("#this#").ast;
+    
+    auto atoms = ast_tools::extract_atom_defs (p);
+    for (auto& atom : atoms)
+      this->comp.add_known_atom (atom);
+    
+    for (auto p : lnk.get_atoms ())
+      this->atoms[p.first] = p.second;
+  }
+  
+  
   
   /* 
    * Prints an intro and runs the REPL.
@@ -310,7 +362,7 @@ namespace rho {
     char input[4096];
     for (;;)
       {
-        std::cout << "# ";
+        std::cout << "; ";
         std::cin.getline (input, sizeof input);
         if (std::cin.eof ())
           {

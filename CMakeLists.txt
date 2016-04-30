@@ -36,6 +36,6 @@ target_link_libraries(rho ${MPFR_LIBRARIES})
 
 #-------------------------------------------------------------------------------
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3 -Wall")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O0 -g -Wall")
 
 

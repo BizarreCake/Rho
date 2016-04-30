@@ -21,9 +21,23 @@
 
 #include <string>
 #include <gmp.h>
+#include <stdexcept>
 
 
 namespace rho {
+  
+  /* 
+   * Thrown by the virtual machine in case of a fatal error.
+   */
+  class vm_error: public std::runtime_error
+  {
+  public:
+    vm_error (const std::string& str)
+      : std::runtime_error (str)
+      { }
+  };
+  
+  
   
 #define RHO_IS_NIL(V) ((V).type == RHO_NIL)
 
@@ -46,6 +60,8 @@ namespace rho {
     RHO_EMPTY_LIST,
     RHO_CONS,
     RHO_VEC,
+    RHO_ATOM,
+    RHO_STR,
   };
   
   bool rho_type_is_collectable (rho_type type);
@@ -76,6 +92,13 @@ namespace rho {
       {
         mpz_t i;
         
+        // string
+        struct
+          {
+            char *str;
+            long len;
+          } s;
+        
         // vector
         struct
           {
@@ -103,7 +126,6 @@ namespace rho {
         struct
           {
             int sp;
-            int uvp;
             rho_value val;
           } uv;
       } val;
@@ -184,13 +206,20 @@ namespace rho {
   rho_value rho_value_make_empty_list (garbage_collector& gc);
   
   rho_value rho_value_make_cons (rho_value& fst, rho_value& snd,
-                                  garbage_collector& gc);
+                                 garbage_collector& gc);
   
   inline rho_value
   rho_value_make_pvar (int pv)
     { rho_value v; v.type = RHO_PVAR; v.val.i32 = pv; return v; }
   
   rho_value rho_value_make_upvalue (garbage_collector& gc);
+  
+  inline rho_value
+  rho_value_make_atom (int val)
+    { rho_value v; v.type = RHO_ATOM; v.val.i32 = val; return v; }
+  
+  rho_value rho_value_make_string (const char *str, long len,
+                                   garbage_collector& gc);
   
   
   

@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <vector>
+#include <unordered_set>
 
 
 namespace rho {
@@ -29,6 +30,7 @@ namespace rho {
   {
     REL_GP,
     REL_GV,
+    REL_A,
   };
   
   struct reloc_t
@@ -36,6 +38,7 @@ namespace rho {
     reloc_type type;
     int pos;
     std::string mname;
+    std::string val;
   };
   
   
@@ -47,7 +50,8 @@ namespace rho {
   {
     std::string name;
     std::vector<std::string> imps;
-  
+    std::unordered_set<std::string> atoms;
+    
     std::unique_ptr<unsigned char []> code;
     int code_len;
     
@@ -62,14 +66,19 @@ namespace rho {
     inline const std::vector<reloc_t>& get_relocs () const { return this->relocs; }
     
     void
-    add_reloc (reloc_type type, int pos, const std::string& mname)
-      { this->relocs.push_back ({ .type = type, .pos = pos, .mname = mname }); }
+    add_reloc (reloc_type type, int pos, const std::string& mname,
+               const std::string& val)
+      { this->relocs.push_back ({ .type = type, .pos = pos, .mname = mname,
+        .val = val }); }
     
     inline const std::string& get_name () const { return this->name; }
     inline void set_name (const std::string& name) { this->name = name; }
     
     inline const std::vector<std::string>& get_imports () const { return this->imps; }
     inline void add_import (const std::string& name) { this->imps.push_back (name); }
+    
+    inline const std::unordered_set<std::string>& get_atoms () const { return this->atoms; }
+    inline void add_atom (const std::string& name) { this->atoms.insert (name); }
   };
 }
 

@@ -19,6 +19,9 @@
 #include "runtime/vm.hpp"
 #include "runtime/gc/gc.hpp"
 #include "runtime/builtins.hpp"
+#include <cstring>
+
+#include <iostream> // DEBUG
 
 
 namespace rho {
@@ -41,6 +44,10 @@ namespace rho {
   {
     this->reset ();
     
+    for (auto& gp : this->gpages)
+      for (int i = 0; i < gp.size; ++i)
+        gp.vals[i].type = RHO_NIL;
+    
     for (int i = 0; i <= VM_SMALL_INT_MAX; ++i)
       gc_unprotect (this->ints[i]);
     
@@ -49,6 +56,9 @@ namespace rho {
     delete this->gc;
     delete[] this->stack;
     delete[] this->ints;
+    
+    for (auto& gp : this->gpages)
+      delete[] gp.vals;
   }
   
   
@@ -187,27 +197,21 @@ namespace rho {
           
           // and
           case 0x16:
-            stack[sp - 2] = rho_value_make_int (
-              (rho_value_cmp_zero (stack[sp - 2]) || rho_value_cmp_zero (stack[sp - 1]))
-              ? 0 : 1, *this->gc);
+            stack[sp - 2] = rho_value_make_bool (
+              !(rho_value_cmp_zero (stack[sp - 2]) || rho_value_cmp_zero (stack[sp - 1])));
             -- sp;
-            gc_unprotect (stack[sp - 1]);
             break;
           
           // or
           case 0x17:
-            stack[sp - 2] = rho_value_make_int (
-              (rho_value_cmp_zero (stack[sp - 2]) && rho_value_cmp_zero (stack[sp - 1]))
-              ? 0 : 1, *this->gc);
+            stack[sp - 2] = rho_value_make_bool (
+              !(rho_value_cmp_zero (stack[sp - 2]) && rho_value_cmp_zero (stack[sp - 1])));
             -- sp;
-            gc_unprotect (stack[sp - 1]);
             break;
           
           // not
           case 0x18:
-            stack[sp - 1] = rho_value_make_int (
-              rho_value_cmp_zero (stack[sp - 1]) ? 1 : 0, *this->gc);
-            gc_unprotect (stack[sp - 1]);
+            stack[sp - 1] = rho_value_make_bool (rho_value_cmp_zero (stack[sp - 1]));
             break;
           
           
@@ -277,7 +281,6 @@ namespace rho {
               auto penv = stack[bp + 2].val.gc->val.fn;
               auto fn = rho_value_make_function (cp, penv.env_len + upvalc, *this->gc);
               stack[sp++] = fn;
-              gc_unprotect (fn);
               
               // insert upvalues
               auto env  = fn.val.gc->val.fn;
@@ -311,27 +314,28 @@ namespace rho {
                   auto& rv = stack[idx];
                   auto& target = env.env[i + penv.env_len];
                   
-                  target = rho_value_make_upvalue (*this->gc);
-                  auto& tuv = target.val.gc->val.uv;
-                  
                   bool found = false;
-                  for (int j = 0; j < penv.env_len; ++j)
+                  for (auto uv_ : this->gc->get_upvalues ())
                     {
-                      auto& puv = penv.env[j].val.gc->val.uv;
-                      if (puv.sp == idx || (puv.sp != -1 && rho_value_cmp_ref_eq (puv.val, rv)))
+                      auto& uv = uv_->val.uv;
+                      if (uv.sp == idx)
                         {
-                          tuv.sp = -1;
-                          tuv.uvp = j;
+                          target.type = RHO_UPVAL;
+                          target.val.gc = uv_;
                           found = true;
                           break;
                         }
                     }
                   
                   if (!found)
-                    tuv.sp = idx;
-                    
-                  gc_unprotect (target);
+                    {
+                      target = rho_value_make_upvalue (*this->gc);
+                      target.val.gc->val.uv.sp = idx;
+                      gc_unprotect (target);
+                    }
                 }
+              
+              gc_unprotect (fn);
             }
             break;
           
@@ -411,7 +415,20 @@ namespace rho {
           // close
           case 0x2D:
             {
-              unsigned char upvalc = *ptr++;
+              unsigned char local_count = *ptr++;
+              int argc = (int)GET_INTERNAL (stack[bp + 3]);
+              
+              auto& upvals = this->gc->get_upvalues ();
+              for (auto uv_ : upvals)
+                {
+                  auto& uv = uv_->val.uv;
+                  if ((uv.sp >= bp + 4 && uv.sp < bp + 4 + local_count)
+                    || (uv.sp > bp - 2 - argc && uv.sp <= bp - 2))
+                    {
+                      uv.val = stack[uv.sp];
+                      uv.sp = -1;
+                    }
+                }
             }
             break;
           
@@ -585,18 +602,18 @@ namespace rho {
             {
               unsigned short index = *(unsigned short *)ptr;
               ptr += 2;
+              unsigned char argc = *ptr++;
               
               switch (index)
                 {
-                /*
-                // range
+                // print:
                 case 0:
-                  auto r = rho_builtin_range (stack[sp - 1], *this);
-                  stack[sp - 1] = r;
-                  gc_unprotect_rec (r);
+                  stack[sp - argc] = rho_builtin_print (stack[sp - 1], *this);
+                  ++ sp;
                   break;
-                */
                 }
+              
+              sp -= argc;
             }
             break;
           
@@ -630,6 +647,23 @@ namespace rho {
           case 0x83:
             stack[sp ++] = rho_value_make_bool (false);
             break;
+          
+          // push_atom
+          case 0x84:
+            stack[sp ++] = rho_value_make_atom (*(int *)ptr);
+            ptr += 4;
+            break;
+          
+          // push_cstr
+          case 0x85:
+            {
+              int len = std::strlen ((char *)ptr);
+              stack[sp] = rho_value_make_string ((char *)ptr, len, *this->gc);
+              ++ sp;
+              gc_unprotect (stack[sp - 1]);
+              ptr += len + 1;
+            }
+            break;
         
         
         //----------------------------------------------------------------------
@@ -654,25 +688,8 @@ namespace rho {
             }
             break;
           
-          // vec_get
-          case 0x91:
-            {
-              auto& vec = stack[sp - 2].val.gc->val.vec;
-              auto& idx = stack[sp - 1].val.gc;
-              if (stack[sp - 1].type != RHO_INTEGER)
-                throw vm_error ("vector subscript must be an integer");
-              
-              long i = mpz_get_si (idx->val.i);
-              if (i < 0 || i >= vec.len)
-                throw vm_error ("vector subscript out of range");
-              
-              -- sp;
-              stack[sp - 1] = vec.vals[i];
-            }
-            break;
-          
           // vec_get_hard
-          case 0x92:
+          case 0x91:
             {
               int index = *((unsigned short *)ptr);
               ptr += 2;
@@ -682,16 +699,98 @@ namespace rho {
             }
             break;
           
+          // vec_get
+          case 0x92:
+            {
+              if (stack[sp - 1].type != RHO_INTEGER)
+                throw vm_error ("index must be an integer");
+              auto& idx = stack[sp - 1].val.gc;
+              long i = mpz_get_si (idx->val.i);
+              
+              switch (stack[sp - 2].type)
+                {
+                case RHO_VEC:
+                  {
+                    auto& vec = stack[sp - 2].val.gc->val.vec;
+                    if (i < 0 || i >= vec.len)
+                      throw vm_error ("index out of range");
+                    
+                    -- sp;
+                    stack[sp - 1] = vec.vals[i];
+                  }
+                  break;
+                
+                case RHO_CONS:
+                  {
+                    -- sp;
+                    auto& c = stack[sp - 1].val.gc->val.p;
+                    switch (i)
+                      {
+                      case 0:
+                        stack[sp - 1] = c.fst;
+                        break;
+                      
+                      case 1:
+                        stack[sp - 1] = c.snd;
+                        break;
+                      
+                      default:
+                        throw vm_error ("index out of range (cons index must be 0 or 1)");
+                      }
+                  }
+                  break;
+                
+                default:
+                  throw vm_error ("invalid object to subscript");
+                }
+            }
+            break;
+          
           // vec_set
           case 0x93:
             {
-              auto& vec = stack[sp - 3].val.gc->val.vec;
+              if (stack[sp - 2].type != RHO_INTEGER)
+                throw vm_error ("index must be an integer");
               auto& idx = stack[sp - 2].val.gc;
-              if (stack[sp - 1].type != RHO_INTEGER)
-                throw vm_error ("vector subscript must be an integer");
+              long i = mpz_get_si (idx->val.i);
               
-              vec.vals[mpz_get_ui (idx->val.i)] = stack[sp - 1];
-              sp -= 3;
+              switch (stack[sp - 3].type)
+                {
+                case RHO_VEC:
+                  {
+                    auto& vec = stack[sp - 3].val.gc->val.vec;
+                    if (i < 0 || i >= vec.len)
+                      throw vm_error ("index out of range");
+                    
+                    vec.vals[i] = stack[sp - 1];
+                    sp -= 3;
+                  }
+                  break;
+                
+                case RHO_CONS:
+                  {
+                    auto& c = stack[sp - 3].val.gc->val.p;
+                    switch (i)
+                      {
+                      case 0:
+                        c.fst = stack[sp - 1];
+                        sp -= 3;
+                        break;
+                      
+                      case 1:
+                        c.snd = stack[sp - 1];
+                        sp -= 3;
+                        break;
+                      
+                      default:
+                        throw vm_error ("index out of range (cons index must be 0 or 1)");
+                      }
+                  }
+                  break;
+                
+                default:
+                  throw vm_error ("invalid object to subscript");
+                }
             }
             break;
           
@@ -753,6 +852,22 @@ namespace rho {
         //----------------------------------------------------------------------
         // other
         //----------------------------------------------------------------------
+           
+          // breakpoint
+          case 0xF0:
+            {
+              int bp = *((int *)ptr);
+              ptr += 4;
+              
+              stack[sp++] = rho_value_make_nil ();
+              
+              std::cout << "BP#" << bp << std::endl;
+              if (bp == 2)
+                int a = 5;
+              else if (bp == 3)
+                int a = 5;
+            }
+            break;
            
           // exit
           case 0xFF:

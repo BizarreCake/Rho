@@ -66,6 +66,13 @@ namespace rho {
   }
   
   
+  void
+  linker::add_atom (const std::string& name, int val)
+  {
+    this->atoms[name] = val;
+  }
+  
+  
   
   /* 
    * Links all modules inserted so far.
@@ -133,6 +140,17 @@ namespace rho {
     int moff = this->cgen.get_label_pos (this->cgen.make_and_mark_label ());    
     inf.code_off = moff;
     
+    // atoms
+    for (auto& atom : m->get_atoms ())
+      {
+        auto itr = this->atoms.find (atom);
+        if (itr == this->atoms.end ())
+          {
+            int idx = this->atoms.size () + 1;
+            this->atoms[atom] = idx;
+          }
+      }
+    
     this->cgen.put_bytes (m->get_code (), m->get_code_size ());
     if (m != this->smods.back ())
       this->cgen.emit_pop ();
@@ -173,6 +191,11 @@ namespace rho {
                       this->cgen.put_short (itr->second);
                     }
                 }
+                break;
+              
+              // fix atom value
+              case REL_A:
+                this->cgen.put_int (this->atoms[rel.val]);
                 break;
               }
           }

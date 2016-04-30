@@ -63,6 +63,10 @@ namespace rho {
     std::unordered_map<std::string, int> mods;
     int next_mod;
     
+    std::unordered_map<std::string, int> atoms;
+    std::vector<std::pair<std::string, std::string>> u_aliases;
+    std::vector<std::string> u_ns;
+    
   private:
     void print_intro ();
     
@@ -80,6 +84,8 @@ namespace rho {
     void handle_globals ();
     void handle_imports_pre ();
     void handle_imports (linker& lnk);
+    void handle_atoms (linker& lnk);
+    void handle_usings ();
     
   public:
     rho_repl ();

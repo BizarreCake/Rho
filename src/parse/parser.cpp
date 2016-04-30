@@ -113,6 +113,32 @@ namespace rho {
     return ast;
   }
   
+  std::shared_ptr<ast_atom>
+  parser::parse_atom (lexer::token_stream& strm)
+  {
+    auto tok = strm.peek_next ();
+    if (tok.type != TOK_ATOM)
+      throw parse_error ("expected atom", tok.ln, tok.col);
+    
+    strm.next ();
+    auto ast = std::shared_ptr<ast_atom> (new ast_atom (tok.val.str));
+    _set_ast_location (ast.get (), tok, this->path);
+    return ast;
+  }
+  
+  std::shared_ptr<ast_string>
+  parser::parse_string (lexer::token_stream& strm)
+  {
+    auto tok = strm.peek_next ();
+    if (tok.type != TOK_STRING)
+      throw parse_error ("expected string", tok.ln, tok.col);
+    
+    strm.next ();
+    auto ast = std::shared_ptr<ast_string> (new ast_string (tok.val.str));
+    _set_ast_location (ast.get (), tok, this->path);
+    return ast;
+  }
+  
   std::shared_ptr<ast_vector>
   parser::parse_vector (lexer::token_stream& strm)
   {
@@ -403,15 +429,55 @@ namespace rho {
         throw parse_error ("expected unary expression", tok.ln, tok.col);
       }
     
-    std::shared_ptr<ast_unop> ast { new ast_unop (op, this->parse_atom (strm)) };
+    std::shared_ptr<ast_unop> ast { new ast_unop (op, this->parse_expr_atom (strm)) };
     _set_ast_location (ast.get (), tok, this->path);
     return ast;
   }
   
   
   
+  std::shared_ptr<ast_let>
+  parser::parse_let (lexer::token_stream& strm)
+  {
+    auto ftok = strm.peek_next ();
+    this->expect (TOK_LET, strm);
+    
+    std::vector<std::pair<std::string, std::shared_ptr<ast_expr>>> defs;
+    token tok;
+    do
+      {
+        tok = strm.peek_next ();
+        this->expect (TOK_IDENT, strm);
+        std::string name = tok.val.str;
+        
+        this->expect (TOK_ASSIGN, strm);
+        
+        auto val = this->parse_expr (strm);
+        
+        defs.push_back (std::make_pair (name, val));
+        
+        tok = strm.peek_next ();
+        if (tok.type == TOK_COMMA)
+          strm.next ();
+        else if (tok.type != TOK_IN)
+          throw parse_error ("expected ',' or 'in'", tok.ln, tok.col);
+      }
+    while (tok.type != TOK_IN);
+    strm.next ();
+    
+    auto body = this->parse_expr (strm);
+    
+    std::shared_ptr<ast_let> ast { new ast_let (body) };
+    for (auto& p : defs)
+      ast->add_def (p.first, p.second);
+    _set_ast_location (ast.get (), ftok, this->path);
+    return ast;
+  }
+  
+  
+  
   std::shared_ptr<ast_expr>
-  parser::parse_atom_main (lexer::token_stream& strm)
+  parser::parse_expr_atom_main (lexer::token_stream& strm)
   {
     auto tok = strm.peek_next ();
     switch (tok.type)
@@ -428,11 +494,20 @@ namespace rho {
           return e;
         }
       
+      case TOK_LBRACE:
+        return this->parse_expr_block (strm);
+      
       case TOK_INTEGER:
         return this->parse_integer (strm);
       
       case TOK_IDENT:
         return this->parse_ident (strm);
+      
+      case TOK_ATOM:
+        return this->parse_atom (strm);
+      
+      case TOK_STRING:
+        return this->parse_string (strm);
       
       case TOK_NIL:
         strm.next ();
@@ -461,6 +536,9 @@ namespace rho {
       case TOK_MATCH:
         return this->parse_match (strm);
       
+      case TOK_LET:
+        return this->parse_let (strm);
+      
       
       case TOK_NOT:
         return this->parse_unary (strm);
@@ -472,7 +550,7 @@ namespace rho {
   }
   
   std::shared_ptr<ast_expr>
-  parser::parse_atom_rest (std::shared_ptr<ast_expr> expr,
+  parser::parse_expr_atom_rest (std::shared_ptr<ast_expr> expr,
                            lexer::token_stream& strm)
   {
     auto tok = strm.peek_next ();
@@ -490,14 +568,14 @@ namespace rho {
   }
   
   std::shared_ptr<ast_expr>
-  parser::parse_atom (lexer::token_stream& strm)
+  parser::parse_expr_atom (lexer::token_stream& strm)
   {
-    return this->parse_atom_rest (this->parse_atom_main (strm), strm);
+    return this->parse_expr_atom_rest (this->parse_expr_atom_main (strm), strm);
   }
   
   
   
-#define MAX_PRECEDENCE 4
+#define MAX_PRECEDENCE 5
   
   enum op_assoc {
     ASSOC_LEFT,
@@ -511,27 +589,28 @@ namespace rho {
   };
   
   static std::unordered_map<int, binop_info> _binop_map {
-    { TOK_AND,    { AST_BINOP_AND, 0, ASSOC_LEFT } },
-    { TOK_OR,     { AST_BINOP_OR, 0, ASSOC_LEFT } },
-    { TOK_EQ,     { AST_BINOP_EQ, 1, ASSOC_LEFT } },
-    { TOK_NEQ,    { AST_BINOP_NEQ, 1, ASSOC_LEFT } },
-    { TOK_GT,     { AST_BINOP_GT, 1, ASSOC_LEFT } },
-    { TOK_GTE,    { AST_BINOP_GTE, 1, ASSOC_LEFT } },
-    { TOK_LT,     { AST_BINOP_LT, 1, ASSOC_LEFT } },
-    { TOK_LTE,    { AST_BINOP_LTE, 1, ASSOC_LEFT } },
-    { TOK_ADD,    { AST_BINOP_ADD, 2, ASSOC_LEFT } },
-    { TOK_SUB,    { AST_BINOP_SUB, 2, ASSOC_LEFT } },
-    { TOK_MUL,    { AST_BINOP_MUL, 3, ASSOC_LEFT } },
-    { TOK_DIV,    { AST_BINOP_DIV, 3, ASSOC_LEFT } },
-    { TOK_PERC,   { AST_BINOP_MOD, 3, ASSOC_LEFT } },
-    { TOK_POW,    { AST_BINOP_POW, 4, ASSOC_RIGHT } },
+    { TOK_ASSIGN, { AST_BINOP_ASSIGN, 0, ASSOC_RIGHT } },
+    { TOK_AND,    { AST_BINOP_AND, 1, ASSOC_LEFT } },
+    { TOK_OR,     { AST_BINOP_OR, 1, ASSOC_LEFT } },
+    { TOK_EQ,     { AST_BINOP_EQ, 2, ASSOC_LEFT } },
+    { TOK_NEQ,    { AST_BINOP_NEQ, 2, ASSOC_LEFT } },
+    { TOK_GT,     { AST_BINOP_GT, 2, ASSOC_LEFT } },
+    { TOK_GTE,    { AST_BINOP_GTE, 2, ASSOC_LEFT } },
+    { TOK_LT,     { AST_BINOP_LT, 2, ASSOC_LEFT } },
+    { TOK_LTE,    { AST_BINOP_LTE, 2, ASSOC_LEFT } },
+    { TOK_ADD,    { AST_BINOP_ADD, 3, ASSOC_LEFT } },
+    { TOK_SUB,    { AST_BINOP_SUB, 3, ASSOC_LEFT } },
+    { TOK_MUL,    { AST_BINOP_MUL, 4, ASSOC_LEFT } },
+    { TOK_DIV,    { AST_BINOP_DIV, 4, ASSOC_LEFT } },
+    { TOK_PERC,   { AST_BINOP_MOD, 4, ASSOC_LEFT } },
+    { TOK_POW,    { AST_BINOP_POW, 5, ASSOC_RIGHT } },
   };
   
   std::shared_ptr<ast_expr>
   parser::parse_binop (lexer::token_stream& strm, int level)
   {
     if (level > MAX_PRECEDENCE)
-      return this->parse_atom (strm);
+      return this->parse_expr_atom (strm);
     
     auto lhs = this->parse_binop (strm, level + 1);
     
@@ -631,9 +710,30 @@ namespace rho {
   }
   
   std::shared_ptr<ast_stmt_block>
-  parser::parse_stmt_block (lexer::token_stream& strm, bool in_block)
+  parser::parse_stmt_block (lexer::token_stream& strm)
   {
     std::shared_ptr<ast_stmt_block> blk { new ast_stmt_block () };
+    _set_ast_location (blk.get (), strm.peek_next (), this->path);
+    
+    // {
+    this->expect (TOK_LBRACE, strm);
+    
+    for (;;)
+      {
+        auto tok = strm.peek_next ();
+        if (tok.type == TOK_RBRACE)
+          { strm.next (); break; }
+        
+        blk->push_back (this->parse_stmt (strm, true));
+      }
+    
+    return blk;
+  }
+  
+  std::shared_ptr<ast_expr_block>
+  parser::parse_expr_block (lexer::token_stream& strm)
+  {
+    std::shared_ptr<ast_expr_block> blk { new ast_expr_block () };
     _set_ast_location (blk.get (), strm.peek_next (), this->path);
     
     // {
@@ -762,17 +862,66 @@ namespace rho {
     return ast;
   }
   
+  std::shared_ptr<ast_atom_def>
+  parser::parse_atom_def (lexer::token_stream& strm, bool in_block)
+  {
+    auto ftok = strm.peek_next ();
+    this->expect (TOK_ATOMK, strm);
+    
+    auto tok = strm.next ();
+    if (tok.type != TOK_ATOM)
+      throw parse_error ("expected atom name after 'atom'", tok.ln, tok.col);
+    std::string name = tok.val.str;
+    
+    this->consume_scol (strm, in_block);
+    
+    std::shared_ptr<ast_atom_def> ast { new ast_atom_def (name) };
+    _set_ast_location (ast.get (), ftok, this->path);
+    return ast;
+  }
+  
+  std::shared_ptr<ast_using>
+  parser::parse_using (lexer::token_stream& strm, bool in_block)
+  {
+    auto ftok = strm.peek_next ();
+    this->expect (TOK_USING, strm);
+    
+    auto tok = strm.peek_next ();
+    this->expect (TOK_IDENT, strm);
+    std::string fst = tok.val.str;
+    
+    std::string snd;
+    tok = strm.peek_next ();
+    if (tok.type == TOK_ASSIGN)
+      {
+        strm.next ();
+        tok = strm.peek_next ();
+        this->expect (TOK_IDENT, strm);
+        snd = tok.val.str;
+      }
+    
+    this->consume_scol (strm, in_block);
+    
+    std::shared_ptr<ast_using> ast { snd.empty () ? new ast_using (fst) : new ast_using (snd, fst) };
+    _set_ast_location (ast.get (), ftok, this->path);
+    return ast;
+  }
+  
   std::shared_ptr<ast_stmt>
   parser::parse_stmt (lexer::token_stream& strm, bool in_block)
   {
     auto tok = strm.peek_next ();
     switch (tok.type)
       {
+      case TOK_SCOL:
+        strm.next ();
+        return std::shared_ptr<ast_stmt> (new ast_empty_stmt ());
+      
       case TOK_VAR:
         return this->parse_var_def (strm, in_block);
       
       case TOK_LBRACE:
-        return this->parse_stmt_block (strm, in_block);
+        return this->parse_stmt_block (strm);
       
       case TOK_MODULE:
         return this->parse_module (strm);
@@ -788,6 +937,12 @@ namespace rho {
       
       case TOK_NAMESPACE:
         return this->parse_namespace (strm);
+      
+      case TOK_ATOMK:
+        return this->parse_atom_def (strm);
+      
+      case TOK_USING:
+        return this->parse_using (strm, in_block);
       
       default:
         return this->parse_expr_stmt (strm, in_block);

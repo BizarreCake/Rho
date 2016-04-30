@@ -1,0 +1,119 @@
+/*
+ * rholib - Rho's standard library.
+ * Copyright (C) 2016 Jacob Zhitomirsky
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+module list;
+
+export (
+  range,
+  map,
+  reverse,
+  len,
+  filter,
+  any,
+  all
+)
+
+
+
+/* 
+ * Returns a list containing all the integers from :start: to :end: (exclusive).
+ */
+var range = fun (start, end) {
+  (fun (i, acc) {
+    if i < start
+       then acc
+       else $(i - 1, '(i . acc))
+  })(end - 1, '());
+};
+
+
+
+/* 
+ * Returns a reversed copy of :lst:.
+ */
+var reverse = fun (lst) {
+  (fun (lst, acc) {
+    if lst == '()
+       then acc
+       else $(cdr(lst), '(car(lst) . acc));
+  })(lst, '());
+};
+
+
+
+/* 
+ * Applies :f: to every element in :lst: and returns the resulting list.
+ */
+var map = fun (f, lst) {
+  (fun (lst, acc) {
+    if lst == '()
+       then reverse(acc)
+       else $(cdr(lst), '(f(car(lst)) . acc))
+  })(lst, '());
+};
+
+
+
+/* 
+ * Returns the length of :lst:.
+ */
+var len = fun (lst) {
+  if lst == '()
+     then 0
+     else 1 + $(cdr(lst))
+};
+
+
+
+/* 
+ * Returns a copy of :lst: in which only elements that pass the predicate :f:
+ * are retained.
+ */
+var filter = fun (f, lst) {
+  (fun (lst, acc) {
+    if lst == '()
+       then reverse(acc)
+       else $(cdr(lst), if f(car(lst)) then '(car(lst) . acc) else acc);
+  })(lst, '());
+};
+
+
+
+/* 
+ * Returns true if there is at least one element in the specified list that
+ * is true.
+ */
+var any = fun (lst) {
+  if lst == '()
+     then false
+     else if car(lst)
+             then true
+             else $(cdr(lst))
+};
+
+/* 
+ * Returns true if there are no false-valued elements in the specified list.
+ */
+var all = fun (lst) {
+  if lst == '()
+     then true
+     else if car(lst)
+             then $(cdr(lst))
+             else false
+};
+

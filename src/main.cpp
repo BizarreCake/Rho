@@ -239,8 +239,7 @@ main (int argc, char *argv[])
   
   // run
   rho::virtual_machine vm;
-  auto res = vm.run (*prg.get ());
-  std::cout << rho_value_str (res) << std::endl;
+  vm.run (*prg.get ());
   
   return 0;
 }

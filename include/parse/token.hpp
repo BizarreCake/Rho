@@ -62,8 +62,10 @@ namespace rho {
     TOK_INTEGER,
     TOK_IDENT,
     TOK_NIL,
-    TOK_TRUE,        // #t
-    TOK_FALSE,       // #f
+    TOK_TRUE,         // true
+    TOK_FALSE,        // false
+    TOK_ATOM,
+    TOK_STRING,
     
     // keywords:
     TOK_VAR,
@@ -78,6 +80,10 @@ namespace rho {
     TOK_EXPORT,
     TOK_RET,
     TOK_NAMESPACE,
+    TOK_ATOMK,        // atom
+    TOK_USING,
+    TOK_LET,
+    TOK_IN,
   };
   
   

@@ -33,7 +33,10 @@ namespace rho {
     AST_NIL,
     AST_BOOL,
     AST_VECTOR,
+    AST_ATOM,
+    AST_STRING,
     
+    AST_EMPTY_STMT,
     AST_EXPR_STMT,
     AST_EXPR_BLOCK,
     AST_STMT_BLOCK,
@@ -53,6 +56,9 @@ namespace rho {
     AST_EXPORT,
     AST_RET,
     AST_SUBSCRIPT,
+    AST_ATOM_DEF,
+    AST_USING,
+    AST_LET,
   };
   
   
@@ -98,7 +104,15 @@ namespace rho {
    */
   class ast_stmt: public ast_node
   {
-    
+  };
+  
+  /* 
+   * ;
+   */
+  class ast_empty_stmt: public ast_stmt
+  {
+  public:
+    virtual ast_node_type get_type () const override { return AST_EMPTY_STMT; }
   };
   
   /* 
@@ -205,22 +219,22 @@ namespace rho {
   
   
   /* 
-   * A sequence of expressions.
-   * A block's evaluation value is that of its last expression.
+   * A sequence of statements.
+   * A block's evaluation value is that of its last expression statement.
    */
   class ast_expr_block: public ast_expr
   {
-    std::vector<std::shared_ptr<ast_expr>> exprs;
+    std::vector<std::shared_ptr<ast_stmt>> stmts;
     
   public:
-    inline std::vector<std::shared_ptr<ast_expr>>& get_exprs () { return this->exprs; }
+    inline std::vector<std::shared_ptr<ast_stmt>>& get_stmts () { return this->stmts; }
     
     virtual ast_node_type get_type () const override { return AST_EXPR_BLOCK; }
     
   public:
     void
-    push_back (std::shared_ptr<ast_expr> e)
-      { this->exprs.push_back (e); }
+    push_back (std::shared_ptr<ast_stmt> stmt)
+      { this->stmts.push_back (stmt); }
   };
   
   /* 
@@ -316,6 +330,8 @@ namespace rho {
     AST_BINOP_GTE,
     AST_BINOP_AND,
     AST_BINOP_OR,
+    
+    AST_BINOP_ASSIGN,
   };
   
   /* 
@@ -332,7 +348,23 @@ namespace rho {
     inline std::shared_ptr<ast_expr> get_rhs () { return this->rhs; }
     
     virtual ast_node_type get_type () const override { return AST_BINOP; }
+    /* 
+   * Identifier.
+   */
+  class ast_ident: public ast_expr
+  {
+    std::string str;
     
+  public:
+    inline const std::string& get_value () const { return this->str; }
+    
+    virtual ast_node_type get_type () const override { return AST_IDENT; }
+    
+  public:
+    ast_ident (const std::string& val)
+      : str (val)
+      { }
+  };
   public:
     ast_binop (ast_binop_type op,
                std::shared_ptr<ast_expr> lhs,
@@ -633,6 +665,124 @@ namespace rho {
                    std::shared_ptr<ast_expr> index)
       : expr (expr), index (index)
       { }
+  };
+  
+  
+  
+  /* 
+   * Atom.
+   */
+  class ast_atom: public ast_expr
+  {
+    std::string str;
+    
+  public:
+    inline const std::string& get_value () const { return this->str; }
+    
+    virtual ast_node_type get_type () const override { return AST_ATOM; }
+    
+  public:
+    ast_atom (const std::string& val)
+      : str (val)
+      { }
+  };
+  
+  /* 
+   * Atom definition of the form:
+   *     atom <atom>;
+   */
+  class ast_atom_def: public ast_stmt
+  {
+    std::string name;
+    
+  public:
+    inline const std::string& get_name () { return this->name; }
+    
+    virtual ast_node_type get_type () const override { return AST_ATOM_DEF; }
+    
+  public:
+    ast_atom_def (const std::string& name)
+      : name (name)
+      { }
+  };
+  
+  
+  
+  /* 
+   * String literal.
+   */
+  class ast_string: public ast_expr
+  {
+    std::string str;
+    
+  public:
+    inline const std::string& get_value () const { return this->str; }
+    
+    virtual ast_node_type get_type () const override { return AST_STRING; }
+    
+  public:
+    ast_string (const std::string& val)
+      : str (val)
+      { }
+  };
+  
+  
+  
+  /* 
+   * using statement.
+   *     using <namespace>;
+   *     using <alias> = <namespace>;
+   */
+  class ast_using: public ast_stmt
+  {
+    std::string ns;
+    std::string alias;
+    
+  public:
+    inline const std::string& get_namespace () const { return this->ns; }
+    inline const std::string& get_alias () const { return this->alias; }
+    
+    virtual ast_node_type get_type () const override { return AST_USING; }
+    
+  public:
+    ast_using (const std::string& ns_name)
+      : ns (ns_name)
+      { }
+    
+    ast_using (const std::string& ns_name, const std::string& alias)
+      : ns (ns_name), alias (alias)
+      { }
+  };
+  
+  
+  
+  /* 
+   * Let expression.
+   *     let <var1> = <val1>, <var2> = <val2>, ..., <varN> = <valN> in <expr>
+   */
+  class ast_let: public ast_expr
+  {
+    std::shared_ptr<ast_expr> body;
+    std::vector<std::pair<std::string, std::shared_ptr<ast_expr>>> defs;
+    
+  public:
+    inline std::shared_ptr<ast_expr>& get_body () { return this->body; }
+    
+    inline std::vector<std::pair<std::string, std::shared_ptr<ast_expr>>>&
+    get_defs ()
+      { return this->defs; }
+      
+    virtual ast_node_type get_type () const override { return AST_LET; }
+    
+  public:
+    ast_let (std::shared_ptr<ast_expr> body)
+      : body (body)
+      { }
+    
+  public:
+    void
+    add_def (const std::string& name, std::shared_ptr<ast_expr> val)
+      { this->defs.push_back (std::make_pair (name, val)); }
   };
 }
 

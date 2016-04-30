@@ -70,10 +70,12 @@ namespace rho {
     std::shared_ptr<ast_integer> parse_integer (lexer::token_stream& strm);
     std::shared_ptr<ast_ident> parse_ident (lexer::token_stream& strm);
     std::shared_ptr<ast_vector> parse_vector (lexer::token_stream& strm);
+    std::shared_ptr<ast_atom> parse_atom (lexer::token_stream& strm);
+    std::shared_ptr<ast_string> parse_string (lexer::token_stream& strm);
     
-    std::shared_ptr<ast_expr> parse_atom (lexer::token_stream& strm);
-    std::shared_ptr<ast_expr> parse_atom_main (lexer::token_stream& strm);
-    std::shared_ptr<ast_expr> parse_atom_rest (std::shared_ptr<ast_expr> expr,
+    std::shared_ptr<ast_expr> parse_expr_atom (lexer::token_stream& strm);
+    std::shared_ptr<ast_expr> parse_expr_atom_main (lexer::token_stream& strm);
+    std::shared_ptr<ast_expr> parse_expr_atom_rest (std::shared_ptr<ast_expr> expr,
                                                lexer::token_stream& strm);
     std::shared_ptr<ast_unop> parse_unary (lexer::token_stream& strm);
     std::shared_ptr<ast_expr> parse_binop (lexer::token_stream& strm, int level);
@@ -94,14 +96,19 @@ namespace rho {
                                                     bool in_block = false);
     std::shared_ptr<ast_var_def> parse_var_def (lexer::token_stream& strm,
                                                 bool in_block = false);
-    std::shared_ptr<ast_stmt_block> parse_stmt_block (lexer::token_stream& strm,
-                                                      bool in_block = false);
+    std::shared_ptr<ast_stmt_block> parse_stmt_block (lexer::token_stream& strm);
+    std::shared_ptr<ast_expr_block> parse_expr_block (lexer::token_stream& strm);
     std::shared_ptr<ast_stmt> parse_module (lexer::token_stream& strm);
     std::shared_ptr<ast_stmt> parse_import (lexer::token_stream& strm);
     std::shared_ptr<ast_stmt> parse_export (lexer::token_stream& strm);
     std::shared_ptr<ast_stmt> parse_ret (lexer::token_stream& strm,
                                          bool in_block = false);
     std::shared_ptr<ast_stmt> parse_namespace (lexer::token_stream& strm);
+    std::shared_ptr<ast_atom_def> parse_atom_def (lexer::token_stream& strm,
+                                                  bool in_block = false);
+    std::shared_ptr<ast_using> parse_using (lexer::token_stream& strm,
+                                            bool in_block = false);
+    std::shared_ptr<ast_let> parse_let (lexer::token_stream& strm);
     std::shared_ptr<ast_stmt> parse_stmt (lexer::token_stream& strm,
                                           bool in_block = false);
     

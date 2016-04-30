@@ -87,6 +87,13 @@ namespace rho {
   }
   
   
+  void
+  compiler::add_known_atom (const std::string& name)
+  {
+    this->known_atoms.insert (name);
+  }
+  
+  
   
   void
   compiler::push_expr_frame (bool last)
@@ -109,7 +116,41 @@ namespace rho {
   
   
   std::string
-  compiler::qualify_name (const std::string& name, bool check_exists)
+  compiler::qualify_name (const std::string& name,
+                          std::shared_ptr<scope_frame> scope)
+  {
+    auto& u_ns = scope->get_used_namespaces ();
+    for (auto& ns : u_ns)
+      {
+        std::string qn = ns + ":" + name;
+        if (scope->get_var (qn).type != VAR_UNDEF
+          || (this->name_imps.find (qn) != this->name_imps.end ()))
+          return qn;
+      }
+    
+    auto& u_aliases = scope->get_aliases ();
+    for (auto& p : u_aliases)
+      {
+        auto idx = name.find (p.first);
+        if (idx == 0)
+          {
+            std::string qn = p.second + name.substr (idx + p.first.length ());
+            if (scope->get_var (qn).type != VAR_UNDEF
+              || (this->name_imps.find (qn) != this->name_imps.end ()))
+              return qn;
+          }
+      }
+    
+    auto qn = this->curr_ns.empty () ? name : (this->curr_ns + ":" + name);
+    if (scope->get_var (qn).type != VAR_UNDEF
+      || (this->name_imps.find (qn) != this->name_imps.end ()))
+      return qn;
+    
+    return name;
+  }
+  
+  std::string
+  compiler::qualify_atom_name (const std::string& name, bool check_exists)
   {
     auto qn = this->curr_ns;
     if (qn.empty ())
@@ -117,8 +158,8 @@ namespace rho {
     else
       qn += ":" + name;
     
-    auto& scope = this->scope_frames.top ();
-    if (!check_exists || scope.get_var (qn).type != VAR_UNDEF)
+    if (!check_exists || (this->atoms.find (qn) != this->atoms.end ()
+      || this->known_atoms.find (qn) != this->known_atoms.end ()))
       return qn;
     
     return name;
@@ -138,6 +179,7 @@ namespace rho {
     this->mod = std::shared_ptr<module> (new module ());
     this->curr_ns = "";
     this->mident = mident;
+    this->atoms.clear ();
     
     this->compile_program (program);
     this->cgen.fix_labels ();
@@ -148,7 +190,8 @@ namespace rho {
     // add relocations
     for (auto& rel : this->cgen.get_relocs ())
       {
-        m->add_reloc (rel.type, this->cgen.get_label_pos (rel.lbl), rel.mname);
+        m->add_reloc (rel.type, this->cgen.get_label_pos (rel.lbl), rel.mname,
+          rel.val);
       }
     
     this->mod.reset ();
@@ -160,27 +203,20 @@ namespace rho {
   void
   compiler::compile_program (std::shared_ptr<ast_program> program)
   {
+    this->prg_ast = program;
     this->mod->set_name (this->mident);
     
     auto& ent = this->mstore.retrieve (this->mident);
-    if (!ent.pfrm)
+    if (ent.van)
+      this->van = ent.van;
+    else
       {
         var_analyzer va;
         for (auto p : this->known_globs)
           va.add_known_global (p.first, p.second);
-        ent.pfrm = std::shared_ptr<var_frame> (
-          new var_frame (va.analyze_program (program)));
+        this->van = ent.van = std::shared_ptr<var_analysis> (
+          new var_analysis (va.analyze (program)));
       }
-    
-    this->var_frames.push (*ent.pfrm);
-    auto& pfrm = this->var_frames.top ();
-    this->mods_off = pfrm.get_mods_off ();
-    
-    this->func_frames.emplace ();
-    auto& fframe = this->func_frames.top ();
-    fframe.get_block_offs () = pfrm.get_block_offs ();
-    
-    this->scope_frames.emplace ();
     
     int lbl_cl = this->cgen.make_label ();
     
@@ -193,6 +229,10 @@ namespace rho {
     
     this->cgen.mark_label (lbl_cl);
     
+    // allocate room for local variables
+    auto fun_f = this->van->get_scope (program)->get_fun ();
+    this->cgen.emit_push_nils (fun_f->get_local_count ());
+    
     // make room for global variables
     if (this->alloc_globs)
       {
@@ -201,7 +241,8 @@ namespace rho {
         else
           {
             this->cgen.rel_set_type (REL_GP);
-            this->cgen.emit_alloc_globals (0, pfrm.global_count ());
+            this->cgen.emit_alloc_globals (0,
+              this->van->get_scope (program)->get_global_count ());
           }
       }
     
@@ -229,11 +270,15 @@ namespace rho {
       }
     
     this->cgen.emit_ret ();
-    this->var_frames.pop ();
-    this->func_frames.pop ();
-    this->scope_frames.pop ();
-    
     this->cgen.mark_label (lbl_end);
+  }
+  
+  
+  
+  void
+  compiler::compile_empty_stmt (std::shared_ptr<ast_empty_stmt> stmt)
+  {
+    
   }
   
   
@@ -245,31 +290,22 @@ namespace rho {
     this->cgen.emit_pop ();
   }
   
+  
+  
   void
   compiler::compile_var_def (std::shared_ptr<ast_var_def> stmt)
   {
-    auto name = this->qualify_name (stmt->get_var ()->get_value (), false);
-    if (!this->func_frames.empty ())
-      {
-        auto& fr = this->func_frames.top ();
-        if (fr.get_param (name) != -1)
-          {
-            this->errs.report (ERR_ERROR,
-              "definition of variable '" + name + "' overshadows function parameter", 
-              stmt->get_location ());
-            return;
-          }
-      }
-    
-    auto& fs = this->var_frames.top ();
-    auto var = fs.get_var (name);
-    auto& scope = this->scope_frames.top ();
-    scope.add_var (name, var);
+    auto name = stmt->get_var ()->get_value ();
+    auto qn = name;
+    if (this->van->get_scope (stmt) == this->van->get_scope (this->prg_ast))
+      qn = (this->curr_ns.empty () ? name : (this->curr_ns + ":" + name));
     
     this->push_expr_frame (false);
     this->compile_expr (stmt->get_val ());
     this->pop_expr_frame ();
     
+    auto scope = this->van->get_scope (stmt->get_var ());
+    auto var = scope->get_var (qn);
     switch (var.type)
       {
       case VAR_LOCAL:
@@ -286,11 +322,15 @@ namespace rho {
       }
   }
   
+  
+  
   void
   compiler::compile_module (std::shared_ptr<ast_module> stmt)
   {
     
   }
+  
+  
   
   void
   compiler::compile_import (std::shared_ptr<ast_import> stmt)
@@ -303,21 +343,42 @@ namespace rho {
     
     this->mod->add_import (mident);
     
+    if (!ent.van)
+      {
+        var_analyzer va;
+        ent.van = std::shared_ptr<var_analysis> (
+          new var_analysis (va.analyze (ent.ast)));
+      }
+    
+    auto scope = ent.van->get_scope (ent.ast);
     auto exps = ast_tools::extract_exports (ent.ast);
     for (auto& exp : exps)
       {
-        auto var = ent.pfrm->get_var (exp);
+        auto var = scope->get_var (exp);
         if (var.type != VAR_GLOBAL)
-          throw std::runtime_error ("compile_import(): shouldn't happen");
+          {
+            this->errs.report (ERR_FATAL,
+              "module '" + mname + "' exports undefined function: " + exp,
+              stmt->get_location());
+            return;
+          }
         this->name_imps[exp] = { .mident = mident, .idx = var.idx };
       }
+    
+    auto atoms = ast_tools::extract_atom_defs (ent.ast);
+    for (auto& atom : atoms)
+      this->atoms.insert (atom);
   }
+  
+  
   
   void
   compiler::compile_export (std::shared_ptr<ast_export> stmt)
   {
     
   }
+  
+  
   
   void
   compiler::compile_ret (std::shared_ptr<ast_ret> stmt)
@@ -326,8 +387,14 @@ namespace rho {
     this->compile_expr (stmt->get_expr ());
     this->pop_expr_frame ();
     
+    auto fun_f = this->van->get_scope (stmt)->get_fun ();
+    if (!fun_f->get_cfrees ().empty ())
+        this->cgen.emit_close (fun_f->get_local_count ());
+    
     this->cgen.emit_ret ();
   }
+  
+  
   
   void
   compiler::compile_namespace (std::shared_ptr<ast_namespace> stmt)
@@ -346,11 +413,44 @@ namespace rho {
     this->curr_ns = pns;
   }
   
+  
+  
+  void
+  compiler::compile_atom_def (std::shared_ptr<ast_atom_def> stmt)
+  {
+    auto qn = this->qualify_atom_name (stmt->get_name (), false);
+    this->atoms.insert (qn);
+    this->mod->add_atom (qn);
+  }
+  
+  
+  
+  void
+  compiler::compile_stmt_block (std::shared_ptr<ast_stmt_block> stmt)
+  {
+    for (auto s : stmt->get_stmts ())
+      this->compile_stmt (s);
+  }
+  
+  
+  
+  void
+  compiler::compile_using (std::shared_ptr<ast_using> stmt)
+  {
+    
+  }
+  
+  
+  
   void
   compiler::compile_stmt (std::shared_ptr<ast_stmt> stmt)
   {
     switch (stmt->get_type ())
       {
+      case AST_EMPTY_STMT:
+        this->compile_empty_stmt (std::static_pointer_cast<ast_empty_stmt> (stmt));
+        break;
+      
       case AST_EXPR_STMT:
         this->compile_expr_stmt (std::static_pointer_cast<ast_expr_stmt> (stmt));
         break;
@@ -377,6 +477,18 @@ namespace rho {
       
       case AST_NAMESPACE:
         this->compile_namespace (std::static_pointer_cast<ast_namespace> (stmt));
+        break;
+      
+      case AST_ATOM_DEF:
+        this->compile_atom_def (std::static_pointer_cast<ast_atom_def> (stmt));
+        break;
+      
+      case AST_STMT_BLOCK:
+        this->compile_stmt_block (std::static_pointer_cast<ast_stmt_block> (stmt));
+        break;
+      
+      case AST_USING:
+        this->compile_using (std::static_pointer_cast<ast_using> (stmt));
         break;
       
       default:
@@ -413,7 +525,7 @@ namespace rho {
   void
   compiler::compile_ident (std::shared_ptr<ast_ident> expr)
   {
-    auto name = this->qualify_name (expr->get_value ());
+    auto name = expr->get_value ();
     
     if (this->pat_on)
       {
@@ -429,27 +541,28 @@ namespace rho {
         return;
       }
     
-    auto& scope = this->scope_frames.top ();
-    auto var = scope.get_var (name);
+    auto qn = this->qualify_name (name, this->van->get_scope (expr));
+    auto scope = this->van->get_scope (expr);
+    auto var = scope->get_var (qn);
     switch (var.type)
       {
       case VAR_ARG:
-        //std::cout << "-- ident[" << name << "]: arg(" << var.idx << ")" << std::endl;
+        //std::cout << "-- ident[" << qn << "]: arg(" << var.idx << ")" << std::endl;
         this->cgen.emit_get_arg (var.idx);
         return;
       
       case VAR_LOCAL:
-        //std::cout << "-- ident[" << name << "]: local(" << var.idx << ")" << std::endl;
+        //std::cout << "-- ident[" << qn << "]: local(" << var.idx << ")" << std::endl;
         this->cgen.emit_get_local (var.idx);
         return;
       
       case VAR_UPVAL:
-        //std::cout << "-- ident[" << name << "]: upval(" << var.idx << ")" << std::endl;
+        //std::cout << "-- ident[" << qn << "]: upval(" << var.idx << ")" << std::endl;
         this->cgen.emit_get_free (var.idx);
         return;
       
       case VAR_GLOBAL:
-        //std::cout << "-- ident[" << name << "]: global(" << var.idx << ")" << std::endl;
+        //std::cout << "-- ident[" << qn << "]: global(" << var.idx << ")" << std::endl;
         this->cgen.rel_set_type (REL_GP);
         this->cgen.emit_get_global (0, var.idx);
         return;
@@ -458,7 +571,7 @@ namespace rho {
         break;
       }
     
-    if (name == "$")
+    if (qn == "$")
       {
         this->cgen.emit_get_fun ();
         return;
@@ -466,17 +579,17 @@ namespace rho {
     
     // check if it's a known global
     {
-      auto itr = this->known_globs.find (name);
+      auto itr = this->known_globs.find (qn);
       if (itr != this->known_globs.end ())
         {
-          //std::cout << "-- ident[" << name << "]: kglobal(" << itr->second << ")" << std::endl;
+          //std::cout << "-- ident[" << naqnme << "]: kglobal(" << itr->second << ")" << std::endl;
           this->cgen.emit_get_global (0, itr->second, false);
           return;
         }
     }
     
     // check if it's an imported name
-    auto itr = this->name_imps.find (name);
+    auto itr = this->name_imps.find (qn);
     if (itr != this->name_imps.end ())
       {
         name_import_t& inf = itr->second;
@@ -487,8 +600,31 @@ namespace rho {
       }
     
     std::ostringstream ss;
-    ss << "'" << expr->get_value () << "' was not declared in this scope";
+    ss << "'" << name << "' was not declared in this scope";
     this->errs.report (ERR_ERROR, ss.str (), expr->get_location ());
+  }
+  
+  void
+  compiler::compile_atom (std::shared_ptr<ast_atom> expr)
+  {
+    auto qn = this->qualify_atom_name (expr->get_value ());
+    if (this->atoms.find (qn) == this->atoms.end () &&
+      this->known_atoms.find (qn) == this->known_atoms.end ())
+      {
+        this->errs.report (ERR_ERROR, "unrecognized atom '" + qn + "'",
+          expr->get_location ());
+        return;
+      }
+    
+    this->cgen.rel_set_type (REL_A);
+    this->cgen.rel_set_val (qn);
+    this->cgen.emit_push_atom (0);
+  }
+  
+  void
+  compiler::compile_string (std::shared_ptr<ast_string> expr)
+  {
+    this->cgen.emit_push_cstr (expr->get_value ());
   }
   
   void
@@ -522,6 +658,12 @@ namespace rho {
   void
   compiler::compile_binop (std::shared_ptr<ast_binop> expr)
   {
+    if (expr->get_op () == AST_BINOP_ASSIGN)
+      {
+        this->compile_assign (expr->get_lhs (), expr->get_rhs ());
+        return;
+      }
+    
     this->push_expr_frame (false);
     this->compile_expr (expr->get_lhs ());
     this->compile_expr (expr->get_rhs ());
@@ -545,20 +687,21 @@ namespace rho {
       case AST_BINOP_LTE: this->cgen.emit_cmp_lte (); break;
       case AST_BINOP_GT: this->cgen.emit_cmp_gt (); break;
       case AST_BINOP_GTE: this->cgen.emit_cmp_gte (); break;
+      
+      case AST_BINOP_ASSIGN:
+        break;
       }
   }
   
   void
   compiler::compile_fun (std::shared_ptr<ast_fun> expr)
   {
-    var_analyzer va;
-    va.set_namespace (this->curr_ns);
-    this->var_frames.push (va.analyze_function (expr, this->var_frames.top ()));
-    auto& fs = this->var_frames.top ();
-    
     int lbl_fn = this->cgen.make_label ();
     int lbl_cfn = this->cgen.make_label ();
     this->cgen.emit_jmp (lbl_cfn);
+    
+    auto fun_s = this->van->get_scope (expr->get_body ());
+    auto fun_f = fun_s->get_fun ();
     
     {
       // function body
@@ -566,31 +709,7 @@ namespace rho {
       this->cgen.mark_label (lbl_fn);
       
       // allocate room for local variables
-      this->cgen.emit_push_nils (fs.local_count ());
-      
-      this->func_frames.emplace ();
-      auto& fr = this->func_frames.top ();
-      fr.get_block_offs () = fs.get_block_offs ();
-      
-      auto pscope = this->scope_frames.empty () ? nullptr : &this->scope_frames.top ();
-      this->scope_frames.emplace ();
-      auto& scope = this->scope_frames.top ();
-      if (pscope)
-        scope.set_parent (*pscope);
-      
-      // register parameters
-      int pi = 0;
-      for (auto param : expr->get_params ())
-        {
-          fr.add_param (param->get_value (), pi);
-          scope.add_var (param->get_value (), { .type = VAR_ARG, .idx = pi });
-          ++ pi;
-        }
-      
-      // register upvalues
-      auto& nfrees = fs.get_new_frees ();
-      for (auto p : nfrees)
-        scope.add_var (p.first, { .type = VAR_UPVAL, .idx = p.second });
+      this->cgen.emit_push_nils (fun_f->get_local_count ());
       
       auto& stmts = expr->get_body ()->get_stmts ();
       if (stmts.empty ())
@@ -612,22 +731,31 @@ namespace rho {
               this->compile_stmt (last);
               this->cgen.emit_push_nil ();
             }
+          
+          if (!fun_f->get_cfrees ().empty ())
+            this->cgen.emit_close (fun_f->get_local_count ());
+          
           this->cgen.emit_ret ();
           this->pop_expr_frame ();
         }
-      
-      this->func_frames.pop ();
-      this->scope_frames.pop ();
     }
     
     this->cgen.mark_label (lbl_cfn);
     
-    auto& nfrees = fs.get_new_frees ();
-    this->cgen.emit_mk_closure (nfrees.size (), lbl_fn);
+    int non_upval_count = 0;
+    auto nfrees = fun_f->get_sorted_nfrees ();
+    auto scope = this->van->get_scope (expr);
     for (auto p : nfrees)
       {
-        auto pfs = fs.get_parent ();
-        auto var = pfs->get_var (p.first);
+        auto var = scope->get_var (p.first);
+        if (var.type == VAR_LOCAL || var.type == VAR_ARG)
+          ++ non_upval_count;
+      }
+    
+    this->cgen.emit_mk_closure (non_upval_count, lbl_fn);
+    for (auto p : nfrees)
+      {
+        auto var = scope->get_var (p.first);
         switch (var.type)
           {
           case VAR_LOCAL:
@@ -638,32 +766,35 @@ namespace rho {
             this->cgen.emit_get_arg (var.idx);
             break;
           
+          case VAR_UPVAL:
+            break;
+          
           default:
             throw std::runtime_error ("compile_fun(): shouldn't happen");
           }
       }
-    
-    
-    this->var_frames.pop ();
-    
   }
   
   void
   compiler::compile_fun_call (std::shared_ptr<ast_fun_call> expr)
   {
-    // check for possibility for tail calls
+    // check for possibility for tail calls and builtins
     bool tail = false;
     if (expr->get_fun ()->get_type () == AST_IDENT)
       {
         auto& name = std::static_pointer_cast<ast_ident> (expr->get_fun ())->get_value ();
         if (this->can_perform_tail_call () && name == "$")
           tail = true;
+        
+        auto qn = this->qualify_name (name, this->van->get_scope (expr));
+        auto scope = this->van->get_scope (expr);
+        auto var = scope->get_var (qn);
+        if (var.type == VAR_UNDEF && this->name_imps.find (qn) == this->name_imps.end ())
+          {
+            if (this->compile_builtin (expr))
+              return;
+          }
       }
-    
-    // check for builtins
-    if (expr->get_fun ()->get_type () == AST_IDENT)
-      if (this->compile_builtin (expr))
-        return;
     
     // push arguments (in reverse order)
     auto& args = expr->get_args ();
@@ -753,8 +884,8 @@ namespace rho {
         auto pat_pvs = this->pat_pvs;
         auto pat_pvs_unique = this->pat_pvs_unique;
         
-        auto& fr = this->func_frames.top ();
-        int off = fr.get_block_offs ()[this->match_depth];
+        auto fun_f = this->van->get_scope (expr)->get_fun ();
+        int off = fun_f->get_block_off (this->van->get_scope (expr)->get_scope_depth () + 1);
         this->cgen.emit_match (off);
         this->cgen.emit_jf (lbl_next);
         
@@ -785,24 +916,9 @@ namespace rho {
         
         // match succeeded at this point
         {
-          auto pscope = this->scope_frames.empty () ? nullptr : &this->scope_frames.top ();
-          this->scope_frames.emplace ();
-          auto& scope = this->scope_frames.top ();
-          if (pscope)
-            scope.set_parent (*pscope);
-          
-          for (auto& p : pat_pvs_unique)
-            {
-              int fidx = off + p.second;
-              scope.add_var (p.first, { .type = VAR_LOCAL, .idx = fidx });
-            }
-          
           ++ this->match_depth;
           this->compile_expr (c.body);
-          this->cgen.emit_ret ();
           -- this->match_depth;
-          
-          this->scope_frames.pop ();
         }
         this->cgen.emit_jmp (lbl_end);
         
@@ -856,12 +972,156 @@ namespace rho {
   
   
   void
+  compiler::compile_assign_to_ident (std::shared_ptr<ast_ident> lhs,
+                                     std::shared_ptr<ast_expr> rhs)
+  {
+    this->push_expr_frame (false);
+    this->compile_expr (rhs);
+    this->pop_expr_frame ();
+    this->cgen.emit_dup ();
+    
+    auto name = this->qualify_name (lhs->get_value (), this->van->get_scope (lhs));
+    
+    auto scope = this->van->get_scope (lhs);
+    auto var = scope->get_var (name);
+    switch (var.type)
+      {
+      case VAR_ARG:
+        this->cgen.emit_set_arg (var.idx);
+        return;
+      
+      case VAR_LOCAL:
+        this->cgen.emit_set_local (var.idx);
+        return;
+      
+      case VAR_UPVAL:
+        this->cgen.emit_set_free (var.idx);
+        return;
+      
+      case VAR_GLOBAL:
+        this->cgen.rel_set_type (REL_GP);
+        this->cgen.emit_set_global (0, var.idx);
+        return;
+      
+      case VAR_UNDEF:
+        break;
+      }
+    
+    // check if it's a known global
+    {
+      auto itr = this->known_globs.find (name);
+      if (itr != this->known_globs.end ())
+        {
+          this->cgen.emit_set_global (0, itr->second, false);
+          return;
+        }
+    }
+    
+    this->errs.report (ERR_ERROR,
+      "'" + lhs->get_value () + "' was not declared in this scope",
+      lhs->get_location ());
+  }
+  
+  void
+  compiler::compile_assign_to_subscript (std::shared_ptr<ast_subscript> lhs,
+                                         std::shared_ptr<ast_expr> rhs)
+  {
+    this->push_expr_frame (false);
+    this->compile_expr (rhs);
+    this->pop_expr_frame ();
+  
+    this->push_expr_frame (false);
+    this->compile_expr (lhs->get_expr ());
+    this->pop_expr_frame ();
+    
+    this->push_expr_frame (false);
+    this->compile_expr (lhs->get_index ());
+    this->pop_expr_frame ();
+    
+    this->cgen.emit_dup_n (3);
+    this->cgen.emit_vec_set ();
+  }
+  
+  void
+  compiler::compile_assign (std::shared_ptr<ast_expr> lhs,
+                            std::shared_ptr<ast_expr> rhs)
+  {
+    switch (lhs->get_type ())
+      {
+      case AST_IDENT:
+        this->compile_assign_to_ident (std::static_pointer_cast<ast_ident> (lhs), rhs);
+        break;
+      
+      case AST_SUBSCRIPT:
+        this->compile_assign_to_subscript (std::static_pointer_cast<ast_subscript> (lhs), rhs);
+        break;
+      
+      default:
+        this->errs.report (ERR_ERROR, "invalid left-hand side type in assignment",
+          lhs->get_location ());
+      }
+  }
+  
+  
+  
+  void
+  compiler::compile_expr_block (std::shared_ptr<ast_expr_block> expr)
+  {
+    auto& stmts = expr->get_stmts ();
+    
+    this->push_expr_frame (false);
+    for (size_t i = 0; i < stmts.size () - 1; ++i)
+      this->compile_stmt (stmts[i]);
+    this->pop_expr_frame ();
+      
+    // handle last statement
+    auto last = stmts.back ();
+    if (last->get_type () == AST_EXPR_STMT)
+      this->compile_expr (std::static_pointer_cast<ast_expr_stmt> (last)->get_expr ());
+    else
+      {
+        this->compile_stmt (last);
+        this->cgen.emit_push_nil ();
+      }
+  }
+  
+  
+  
+  void
+  compiler::compile_let (std::shared_ptr<ast_let> expr)
+  {
+    for (auto& p : expr->get_defs ())
+      {
+        this->compile_expr (p.second);
+        
+        auto scope = this->van->get_scope (p.second);
+        auto var = scope->get_var (p.first);
+        if (var.type != VAR_LOCAL)
+          throw std::runtime_error ("compile_let(): shouldn't happen");
+        
+        this->cgen.emit_set_local (var.idx);
+      }
+    
+    this->compile_expr (expr->get_body ());
+  }
+  
+  
+  
+  void
   compiler::compile_expr (std::shared_ptr<ast_expr> expr)
   {
     switch (expr->get_type ())
       {
       case AST_INTEGER:
         this->compile_integer (std::static_pointer_cast<ast_integer> (expr));
+        break;
+      
+      case AST_ATOM:
+        this->compile_atom (std::static_pointer_cast<ast_atom> (expr));
+        break;
+      
+      case AST_STRING:
+        this->compile_string (std::static_pointer_cast<ast_string> (expr));
         break;
       
       case AST_IDENT:
@@ -914,6 +1174,14 @@ namespace rho {
       
       case AST_SUBSCRIPT:
         this->compile_subscript (std::static_pointer_cast<ast_subscript> (expr));
+        break;
+      
+      case AST_EXPR_BLOCK:
+        this->compile_expr_block (std::static_pointer_cast<ast_expr_block> (expr));
+        break;
+      
+      case AST_LET:
+        this->compile_let (std::static_pointer_cast<ast_let> (expr));
         break;
       
       default:

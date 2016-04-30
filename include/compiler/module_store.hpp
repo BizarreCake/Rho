@@ -20,7 +20,6 @@
 #define _RHO__COMPILER__MODULE_STORE__H_
 
 #include "parse/ast.hpp"
-#include "compiler/variable.hpp"
 #include <unordered_map>
 #include <memory>
 #include <string>
@@ -28,7 +27,7 @@
 
 namespace rho {
   
-  class var_frame;
+  class var_analysis;
   
   /* 
    * Stores known information about modules that are being compiled (e.g. AST).
@@ -42,7 +41,7 @@ namespace rho {
       std::string mname;
       
       std::shared_ptr<ast_program> ast;
-      std::shared_ptr<var_frame> pfrm;
+      std::shared_ptr<var_analysis> van;
       
       std::string full_path;
       std::string dir_path;

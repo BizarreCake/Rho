@@ -62,6 +62,8 @@ namespace rho {
     std::unordered_map<std::string, int> known_mods;
     int mod_idx;
     
+    std::unordered_map<std::string, int> atoms;
+    
     code_generator cgen;
     
   private:
@@ -74,6 +76,10 @@ namespace rho {
     
     inline int get_next_mod_idx () const { return this->mod_idx; }
     void set_next_mod_idx (int next_mod_idx);
+    
+    inline const std::unordered_map<std::string, int>&
+    get_atoms () const
+      { return this->atoms; }
     
   public:
     linker ();
@@ -95,6 +101,8 @@ namespace rho {
     // REPL stuff:
     
     void add_known_module (const std::string& mident, int midx);
+  
+    void add_atom (const std::string& name, int val);
   
   private:
     void init ();

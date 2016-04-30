@@ -26,19 +26,21 @@ Currently only a very small subset of features is implemented.
 
 Take a look at a snippet of Rho, which illustrates what Rho looks like at the moment:
 ```
-; var fib = fun (n) {
-    (fun (a, b, i) {
-      if i >= n
-        then a
-        else $(b, a + b, i + 1);
-    })(0, 1, 0);
-  };
+import std:streams;
 
-; fib(100);
- => 280571172992510140037611932413038677189525
+var fibs = ls:cons(0, ls:cons(1, ls:map2(fun (a, b) { a + b },
+  ls:relay(fun () { fibs }), ls:cdr(ls:relay(fun () { fibs })))));
+
+print(ls:index(fibs, 100));
 ```
 
-Here `$` refers to the function being executed.
+The snippet above uses the partially-implemented standard library `std:streams`
+which implements lazy streams. Using lazy streams, a stream containing the
+fibonacci sequence is recursively constructed, and is then used to output the
+100th number in the sequence.
+
+NOTE: To run the above snippet, be sure to copy the std directory in rholib/
+to the directory containing the Rho executable!
 
 What's to Come
 --------------

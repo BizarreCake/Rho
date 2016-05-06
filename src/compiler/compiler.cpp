@@ -222,7 +222,7 @@ namespace rho {
     
     // push program function
     this->cgen.emit_mk_fn (lbl_cl);
-    this->cgen.emit_call (0);
+    this->cgen.emit_call0 (0);
     
     int lbl_end = this->cgen.make_label ();
     this->cgen.emit_jmp (lbl_end);
@@ -245,6 +245,10 @@ namespace rho {
               this->van->get_scope (program)->get_global_count ());
           }
       }
+    
+    // push initial micro-frame
+    this->cgen.emit_push_int32 (10);
+    this->cgen.emit_push_microframe ();
     
     auto& stmts = program->get_stmts ();
     if (stmts.empty ())
@@ -421,6 +425,10 @@ namespace rho {
     auto qn = this->qualify_atom_name (stmt->get_name (), false);
     this->atoms.insert (qn);
     this->mod->add_atom (qn);
+    
+    this->cgen.rel_set_type (REL_A);
+    this->cgen.rel_set_val (qn);
+    this->cgen.emit_def_atom (0, qn);
   }
   
   
@@ -520,6 +528,16 @@ namespace rho {
       }
     
     mpz_clear (num);
+  }
+  
+  void
+  compiler::compile_float (std::shared_ptr<ast_float> expr)
+  {
+    std::istringstream ss { expr->get_value () };
+    double val;
+    ss >> val;
+    
+    this->cgen.emit_push_float (val);
   }
   
   void
@@ -1107,6 +1125,17 @@ namespace rho {
   
   
   
+  void 
+  compiler::compile_n (std::shared_ptr<ast_n> expr)
+  {
+    this->compile_expr (expr->get_prec ());
+    this->cgen.emit_push_microframe ();
+    this->compile_expr (expr->get_body ());
+    this->cgen.emit_pop_microframe ();
+  }
+  
+  
+  
   void
   compiler::compile_expr (std::shared_ptr<ast_expr> expr)
   {
@@ -1114,6 +1143,10 @@ namespace rho {
       {
       case AST_INTEGER:
         this->compile_integer (std::static_pointer_cast<ast_integer> (expr));
+        break;
+      
+      case AST_FLOAT:
+        this->compile_float (std::static_pointer_cast<ast_float> (expr));
         break;
       
       case AST_ATOM:
@@ -1182,6 +1215,10 @@ namespace rho {
       
       case AST_LET:
         this->compile_let (std::static_pointer_cast<ast_let> (expr));
+        break;
+      
+      case AST_N:
+        this->compile_n (std::static_pointer_cast<ast_n> (expr));
         break;
       
       default:

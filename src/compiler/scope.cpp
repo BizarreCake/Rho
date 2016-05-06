@@ -76,6 +76,7 @@ namespace rho {
       case AST_IMPORT:
       case AST_EXPORT:
       case AST_ATOM_DEF:
+      case AST_FLOAT:
         break;
       
       case AST_NAMESPACE:
@@ -152,6 +153,10 @@ namespace rho {
       
       case AST_LET:
         this->analyze_let (std::static_pointer_cast<ast_let> (node));
+        break;
+      
+      case AST_N:
+        this->analyze_n (std::static_pointer_cast<ast_n> (node));
         break;
       }
   }
@@ -515,6 +520,13 @@ namespace rho {
     
     this->funs.top ()->pop_scope ();
     this->scopes.pop ();
+  }
+  
+  void
+  var_analyzer::analyze_n (std::shared_ptr<ast_n> node)
+  {
+    this->analyze_node (node->get_prec ());
+    this->analyze_node (node->get_body ());
   }
   
   

@@ -32,7 +32,7 @@ export (
   ls:car!,
   ls:cdr!,
   ls:cdr,
-  ls:index,
+  ls:at,
   
   ls:to_list,
   
@@ -206,7 +206,7 @@ namespace ls {
   /* 
    * Returns the element located at index :i: in the given stream.
    */
-  var index = fun (s, i) {
+  var at = fun (s, i) {
     (fun (s, c) {
       //print("index: {0}" % c); 
       car!(s);
@@ -227,7 +227,7 @@ namespace ls {
   var to_list = fun (s, count) {
     (fun (s, i, acc) {
       if i == count
-        then acc
+        then reverse(acc)
         else $(cdr!(s), i + 1, '(car!(s) . acc));
     })(s, 0, '());
   };

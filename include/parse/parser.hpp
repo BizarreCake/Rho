@@ -68,6 +68,7 @@ namespace rho {
     std::shared_ptr<ast_program> parse_program (lexer::token_stream& strm);
     
     std::shared_ptr<ast_integer> parse_integer (lexer::token_stream& strm);
+    std::shared_ptr<ast_float> parse_float (lexer::token_stream& strm);
     std::shared_ptr<ast_ident> parse_ident (lexer::token_stream& strm);
     std::shared_ptr<ast_vector> parse_vector (lexer::token_stream& strm);
     std::shared_ptr<ast_atom> parse_atom (lexer::token_stream& strm);
@@ -90,6 +91,8 @@ namespace rho {
     std::shared_ptr<ast_match> parse_match (lexer::token_stream& strm);
     std::shared_ptr<ast_subscript> parse_subscript (std::shared_ptr<ast_expr> expr,
                                                     lexer::token_stream& strm);
+    std::shared_ptr<ast_let> parse_let (lexer::token_stream& strm);
+    std::shared_ptr<ast_n> parse_n (lexer::token_stream& strm);
     std::shared_ptr<ast_expr> parse_expr (lexer::token_stream& strm);
     
     std::shared_ptr<ast_expr_stmt> parse_expr_stmt (lexer::token_stream& strm,
@@ -108,7 +111,6 @@ namespace rho {
                                                   bool in_block = false);
     std::shared_ptr<ast_using> parse_using (lexer::token_stream& strm,
                                             bool in_block = false);
-    std::shared_ptr<ast_let> parse_let (lexer::token_stream& strm);
     std::shared_ptr<ast_stmt> parse_stmt (lexer::token_stream& strm,
                                           bool in_block = false);
     

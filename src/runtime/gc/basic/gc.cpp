@@ -139,6 +139,7 @@ namespace rho {
       case RHO_INTERNAL:
       case RHO_ATOM:
       case RHO_STR:
+      case RHO_FLOAT:
         break;
       
       case RHO_VEC:

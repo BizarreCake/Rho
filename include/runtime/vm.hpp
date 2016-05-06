@@ -102,10 +102,18 @@ namespace rho {
     
     rho_value *ints; // pre-allocated small integers
     std::vector<glob_page> gpages;
+    std::vector<std::string> atom_names;
     
   public:
     inline garbage_collector& get_gc () { return *this->gc; }
     inline std::vector<glob_page>& get_globals () { return this->gpages; }
+    
+    inline std::vector<std::string>& get_atoms () { return this->atom_names; }
+    inline const std::string& get_atom_name (int val) const { return this->atom_names[val]; }
+    
+    inline rho_value get_prealloced_int (int val) { return this->ints[val]; }
+    
+    int get_base10_prec () const;
     
   public:
     virtual_machine (int stack_size = VM_DEF_STACK_SIZE,

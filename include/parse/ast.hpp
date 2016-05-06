@@ -35,6 +35,7 @@ namespace rho {
     AST_VECTOR,
     AST_ATOM,
     AST_STRING,
+    AST_FLOAT,
     
     AST_EMPTY_STMT,
     AST_EXPR_STMT,
@@ -59,6 +60,7 @@ namespace rho {
     AST_ATOM_DEF,
     AST_USING,
     AST_LET,
+    AST_N,
   };
   
   
@@ -149,6 +151,24 @@ namespace rho {
     
   public:
     ast_integer (const std::string& val)
+      : str (val)
+      { }
+  };
+  
+  /* 
+   * Float literal.
+   */
+  class ast_float: public ast_expr
+  {
+    std::string str;
+    
+  public:
+    inline const std::string& get_value () const { return this->str; }
+    
+    virtual ast_node_type get_type () const override { return AST_FLOAT; }
+    
+  public:
+    ast_float (const std::string& val)
       : str (val)
       { }
   };
@@ -783,6 +803,29 @@ namespace rho {
     void
     add_def (const std::string& name, std::shared_ptr<ast_expr> val)
       { this->defs.push_back (std::make_pair (name, val)); }
+  };
+  
+  
+  
+  /* 
+   * Numeric evaluation expression.
+   *     N:<expr> { <expr> }
+   */
+  class ast_n: public ast_expr
+  {
+    std::shared_ptr<ast_expr> prec;
+    std::shared_ptr<ast_expr_block> body;
+    
+  public:
+    inline std::shared_ptr<ast_expr>& get_prec () { return this->prec; }
+    inline std::shared_ptr<ast_expr_block>& get_body () { return this->body; }
+    
+    virtual ast_node_type get_type () const override { return AST_N; }
+    
+  public:
+    ast_n (std::shared_ptr<ast_expr> prec, std::shared_ptr<ast_expr_block> body)
+      : prec (prec), body (body)
+      { }
   };
 }
 

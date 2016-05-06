@@ -261,6 +261,7 @@ namespace rho {
     void analyze_subscript (std::shared_ptr<ast_subscript> node);
     void analyze_using (std::shared_ptr<ast_using> node);
     void analyze_let (std::shared_ptr<ast_let> node);
+    void analyze_n (std::shared_ptr<ast_n> node);
     
   private:
     std::string qualify_name (const std::string& name,

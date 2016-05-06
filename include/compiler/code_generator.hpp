@@ -160,7 +160,6 @@ namespace rho {
     void emit_or ();
     void emit_not ();
     
-    void emit_mk_ivec (int len);
     void emit_mk_fn (int lbl);
     void emit_call (unsigned char argc);
     void emit_ret ();
@@ -174,7 +173,7 @@ namespace rho {
     void emit_tail_call ();
     void emit_get_fun ();
     void emit_close (unsigned char localc);
-    void emit_ivec_get (int idx);
+    void emit_call0 (unsigned char argc);
     
     void emit_cmp_eq ();
     void emit_cmp_neq ();
@@ -204,6 +203,7 @@ namespace rho {
     void emit_push_false ();
     void emit_push_atom (int val, bool emit_reloc = true);
     void emit_push_cstr (const std::string& str);
+    void emit_push_float (double val);
     
     void emit_mk_vec (unsigned short count);
     void emit_vec_get_hard (unsigned short index);
@@ -213,6 +213,10 @@ namespace rho {
     void emit_alloc_globals (unsigned short page, unsigned short count, bool emit_reloc = true);
     void emit_get_global (unsigned short page, unsigned short idx, bool emit_reloc = true);
     void emit_set_global (unsigned short page, unsigned short idx, bool emit_reloc = true);
+    void emit_def_atom (int val, const std::string& name, bool emit_reloc = true);
+    
+    void emit_push_microframe ();
+    void emit_pop_microframe ();
     
     void emit_breakpoint (int bp);
     void emit_exit ();

@@ -247,6 +247,7 @@ namespace rho {
       case ';': this->strm->get (); tok.type = TOK_SCOL; return true;
       case ',': this->strm->get (); tok.type = TOK_COMMA; return true;
       case '.': this->strm->get (); tok.type = TOK_DOT; return true;
+      case ':': this->strm->get (); tok.type = TOK_COL; return true;
       
       case '+': this->strm->get (); tok.type = TOK_ADD; return true;
       case '-': this->strm->get (); tok.type = TOK_SUB; return true;
@@ -357,17 +358,32 @@ namespace rho {
   
   
   bool
-  lexer::try_read_integer (token& tok)
+  lexer::try_read_number (token& tok)
   {
     int c = this->strm->peek ();
     if (!std::isdigit (c))
       return false;
     
+    bool got_dot = false;
     std::string str;
-    while (std::isdigit (this->strm->peek ()))
-      str.push_back (this->strm->get ());
+    for (;;)
+      {
+        c = this->strm->peek ();
+        if (std::isdigit (c))
+          str.push_back (this->strm->get ());
+        else if (c == '.')
+          {
+            if (got_dot)
+              break;
+            
+            str.push_back (this->strm->get ());
+            got_dot = true;
+          }
+        else
+          break;
+      }
     
-    tok.type = TOK_INTEGER;
+    tok.type = got_dot ? TOK_FLOAT : TOK_INTEGER;
     tok.val.str = new char [str.size () + 1];
     std::strcpy (tok.val.str, str.c_str ());
     
@@ -408,6 +424,7 @@ namespace rho {
       { "using", TOK_USING },
       { "let", TOK_LET },
       { "in", TOK_IN },
+      { "N", TOK_N },
     };
     
     auto itr = _map.find (str);
@@ -423,6 +440,19 @@ namespace rho {
     int c = this->strm->peek ();
     if (!_is_ident_first_char (c))
       return false;
+    
+    if (c == 'N')
+      {
+        // handle special case
+        this->strm->get ();
+        if (this->strm->peek () == ':')
+          {
+            tok.type = TOK_N;
+            return true;
+          }
+        else
+          this->strm->unget ();
+      }
     
     bool is_atom = false;
     int ccol = 0;
@@ -506,7 +536,7 @@ namespace rho {
     
     TRY_READ (punctuation)
     TRY_READ (string)
-    TRY_READ (integer)
+    TRY_READ (number)
     TRY_READ (atom)
     TRY_READ (ident)
     

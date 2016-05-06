@@ -370,13 +370,6 @@ namespace rho {
   
   
   void
-  code_generator::emit_mk_ivec (int len)
-  {
-    this->put_byte (0x20);
-    this->put_int (len);
-  }
-  
-  void
   code_generator::emit_mk_fn (int lbl)
   {
     this->put_byte (0x21);
@@ -466,10 +459,10 @@ namespace rho {
   }
   
   void
-  code_generator::emit_ivec_get (int idx)
+  code_generator::emit_call0 (unsigned char argc)
   {
-    this->put_byte (0x2e);
-    this->put_int (idx);
+    this->put_byte (0x2E);
+    this->put_byte (argc);
   }
   
   
@@ -638,6 +631,13 @@ namespace rho {
     this->put_cstr (str);
   }
   
+  void
+  code_generator::emit_push_float (double val)
+  {
+    this->put_byte (0x86);
+    this->put_double (val);
+  }
+  
   
   
   void
@@ -704,6 +704,33 @@ namespace rho {
     
     if (emit_reloc)
       this->add_reloc (lbl);
+  }
+  
+  void
+  code_generator::emit_def_atom (int val, const std::string& name,
+                                 bool emit_reloc)
+  {
+    this->put_byte (0xA3);
+    int lbl = this->make_and_mark_label ();
+    this->put_int (val);
+    this->put_cstr (name);
+    
+    if (emit_reloc)
+      this->add_reloc (lbl);
+  }
+  
+  
+  
+  void
+  code_generator::emit_push_microframe ()
+  {
+    this->put_byte (0xB0);
+  }
+  
+  void
+  code_generator::emit_pop_microframe ()
+  {
+    this->put_byte (0xB1);
   }
   
   

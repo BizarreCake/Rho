@@ -157,6 +157,7 @@ namespace rho {
     void compile_stmt (std::shared_ptr<ast_stmt> stmt);
     
     void compile_integer (std::shared_ptr<ast_integer> expr);
+    void compile_float (std::shared_ptr<ast_float> expr);
     void compile_ident (std::shared_ptr<ast_ident> expr);
     void compile_atom (std::shared_ptr<ast_atom> expr);
     void compile_string (std::shared_ptr<ast_string> expr);
@@ -174,6 +175,7 @@ namespace rho {
     void compile_subscript (std::shared_ptr<ast_subscript> expr);
     void compile_expr_block (std::shared_ptr<ast_expr_block> expr);
     void compile_let (std::shared_ptr<ast_let> expr);
+    void compile_n (std::shared_ptr<ast_n> expr);
     void compile_expr (std::shared_ptr<ast_expr> expr);
     
     void compile_assign (std::shared_ptr<ast_expr> lhs,
@@ -189,6 +191,7 @@ namespace rho {
     void compile_builtin_cdr (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_breakpoint (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_print (std::shared_ptr<ast_fun_call> expr);
+    void compile_builtin_len (std::shared_ptr<ast_fun_call> expr);
   };
 }
 

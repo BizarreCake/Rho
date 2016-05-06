@@ -48,6 +48,7 @@ namespace rho {
         case AST_EMPTY_STMT:
         case AST_STRING:
         case AST_USING:
+        case AST_FLOAT:
           break;
         
         case AST_EXPR_STMT:
@@ -190,6 +191,14 @@ namespace rho {
             auto cn = std::static_pointer_cast<ast_let> (node);
             for (auto& p : cn->get_defs ())
               _traverse_dfs_node (p.second, fn);
+            _traverse_dfs_node (cn->get_body (), fn);
+          }
+          break;
+        
+        case AST_N:
+          {
+            auto cn = std::static_pointer_cast<ast_n> (node);
+            _traverse_dfs_node (cn->get_prec (), fn);
             _traverse_dfs_node (cn->get_body (), fn);
           }
           break;

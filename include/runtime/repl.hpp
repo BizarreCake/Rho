@@ -86,6 +86,7 @@ namespace rho {
     void handle_imports (linker& lnk);
     void handle_atoms (linker& lnk);
     void handle_usings ();
+    void handle_print ();
     
   public:
     rho_repl ();

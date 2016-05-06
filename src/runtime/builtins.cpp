@@ -31,9 +31,58 @@ namespace rho {
     if (p.type == RHO_STR)
       std::cout << p.val.gc->val.s.str << std::endl;
     else
-      std::cout << rho_value_str (p) << std::endl;
+      std::cout << rho_value_str (p, vm) << std::endl;
     
     return rho_value_make_nil ();
+  }
+  
+  
+  
+//------------------------------------------------------------------------------
+  
+  static long
+  _list_len (rho_value& lst)
+  {
+    long len = 0;
+    
+    rho_value cur = lst;
+    while (cur.type == RHO_CONS)
+      {
+        ++ len;
+        cur = cur.val.gc->val.p.snd;
+      }
+    
+    if (cur.type == RHO_EMPTY_LIST)
+      return len;
+    return 0;
+  }
+  
+  rho_value
+  rho_builtin_len (rho_value& p, virtual_machine& vm)
+  {
+    switch (p.type)
+      {
+      case RHO_VEC:
+        {
+          long len = p.val.gc->val.vec.len;
+          if (len <= VM_SMALL_INT_MAX)
+            return vm.get_prealloced_int (len);
+          
+          return rho_value_make_int (len, vm.get_gc ());
+        }
+      
+      case RHO_CONS:
+        {
+          long len = _list_len (p);
+          if (len <= VM_SMALL_INT_MAX)
+            return vm.get_prealloced_int (len);
+          
+          return rho_value_make_int (len, vm.get_gc ());
+        }
+      
+      default:
+        return vm.get_prealloced_int (0);
+      }
   }
 }
 

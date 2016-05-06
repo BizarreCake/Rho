@@ -57,6 +57,7 @@ namespace rho {
     TOK_AND,          // &
     TOK_OR,           // |
     TOK_NOT,          // !
+    TOK_COL,          // :
     
     // datums:
     TOK_INTEGER,
@@ -66,6 +67,7 @@ namespace rho {
     TOK_FALSE,        // false
     TOK_ATOM,
     TOK_STRING,
+    TOK_FLOAT,
     
     // keywords:
     TOK_VAR,
@@ -84,6 +86,7 @@ namespace rho {
     TOK_USING,
     TOK_LET,
     TOK_IN,
+    TOK_N,
   };
   
   

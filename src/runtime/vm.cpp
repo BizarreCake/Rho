@@ -19,6 +19,7 @@
 #include "runtime/vm.hpp"
 #include "runtime/gc/gc.hpp"
 #include "runtime/builtins.hpp"
+#include "util/float.hpp"
 #include <cstring>
 
 #include <iostream> // DEBUG
@@ -70,6 +71,15 @@ namespace rho {
   virtual_machine::get_stack (bool refs_only)
   {
     return stack_provider (this->stack, this->sp, refs_only);
+  }
+  
+  
+  
+  int
+  virtual_machine::get_base10_prec () const
+  {
+    int start = GET_INTERNAL (stack[bp + 4]);
+    return GET_INTERNAL(stack[start + 2]);
   }
   
   
@@ -155,42 +165,42 @@ namespace rho {
             
           // add
           case 0x10:
-            stack[sp - 2] = rho_value_add (stack[sp - 2], stack[sp - 1], *this->gc);
+            stack[sp - 2] = rho_value_add (stack[sp - 2], stack[sp - 1], *this);
             -- sp;
             gc_unprotect (stack[sp - 1]);
             break;
           
           // sub
           case 0x11:
-            stack[sp - 2] = rho_value_sub (stack[sp - 2], stack[sp - 1], *this->gc);
+            stack[sp - 2] = rho_value_sub (stack[sp - 2], stack[sp - 1], *this);
             -- sp;
             gc_unprotect (stack[sp - 1]);
             break;
           
           // mul
           case 0x12:
-            stack[sp - 2] = rho_value_mul (stack[sp - 2], stack[sp - 1], *this->gc);
+            stack[sp - 2] = rho_value_mul (stack[sp - 2], stack[sp - 1], *this);
             -- sp;
             gc_unprotect (stack[sp - 1]);
             break;
           
           // div
           case 0x13:
-            stack[sp - 2] = rho_value_div (stack[sp - 2], stack[sp - 1], *this->gc);
+            stack[sp - 2] = rho_value_div (stack[sp - 2], stack[sp - 1], *this);
             -- sp;
             gc_unprotect (stack[sp - 1]);
             break;
           
           // pow
           case 0x14:
-            stack[sp - 2] = rho_value_pow (stack[sp - 2], stack[sp - 1], *this->gc);
+            stack[sp - 2] = rho_value_pow (stack[sp - 2], stack[sp - 1], *this);
             -- sp;
             gc_unprotect (stack[sp - 1]);
             break;
           
           // mod
           case 0x15:
-            stack[sp - 2] = rho_value_mod (stack[sp - 2], stack[sp - 1], *this->gc);
+            stack[sp - 2] = rho_value_mod (stack[sp - 2], stack[sp - 1], *this);
             -- sp;
             gc_unprotect (stack[sp - 1]);
             break;
@@ -250,6 +260,9 @@ namespace rho {
               // push argument count
               stack[sp ++] = MK_INTERNAL ((unsigned char)*ptr);
               
+              // push microframe pointer
+              stack[sp ++] = MK_INTERNAL (GET_INTERNAL (stack[pbp + 4]));
+              
               ptr = cl.val.gc->val.fn.cp;
             }
             break;
@@ -303,7 +316,7 @@ namespace rho {
                     case 0x28:
                       {
                         unsigned char index = *ptr++;
-                        idx = bp + 4 + index;
+                        idx = bp + 5 + index;
                       }
                       break;
                     
@@ -311,7 +324,6 @@ namespace rho {
                       throw vm_error ("a sequence of get_arg/get_local's should follow mk_closure");
                     }
                   
-                  auto& rv = stack[idx];
                   auto& target = env.env[i + penv.env_len];
                   
                   bool found = false;
@@ -371,7 +383,7 @@ namespace rho {
           case 0x28:
             {
               unsigned char index = *ptr++;
-              stack[sp ++] = stack[bp + 4 + index];
+              stack[sp ++] = stack[bp + 5 + index];
             }
             break;
           
@@ -379,7 +391,7 @@ namespace rho {
           case 0x29:
             {
               unsigned char index = *ptr++;
-              stack[bp + 4 + index] = stack[-- sp];
+              stack[bp + 5 + index] = stack[-- sp];
             }
             break;
           
@@ -402,7 +414,7 @@ namespace rho {
               for (int i = 0; i < argc; ++i)
                 stack[bp - 2 - i] = stack[sp - 1 - i];
               
-              sp = bp + 4;
+              sp = bp + 5;
               ptr = stack[bp + 2].val.gc->val.fn.cp;
             }
             break;
@@ -422,7 +434,7 @@ namespace rho {
               for (auto uv_ : upvals)
                 {
                   auto& uv = uv_->val.uv;
-                  if ((uv.sp >= bp + 4 && uv.sp < bp + 4 + local_count)
+                  if ((uv.sp >= bp + 5 && uv.sp < bp + 5 + local_count)
                     || (uv.sp > bp - 2 - argc && uv.sp <= bp - 2))
                     {
                       uv.val = stack[uv.sp];
@@ -432,6 +444,32 @@ namespace rho {
             }
             break;
           
+         // call0
+         case 0x2E:
+          {
+            auto cl = stack[sp - 1];
+              
+            // push previous bp
+            int pbp = bp;
+            bp = sp;
+            stack[sp ++] = MK_INTERNAL (pbp);
+            
+            // push return address
+            stack[sp ++] = MK_INTERNAL (ptr + 1);
+            
+            // push env
+            stack[sp ++] = cl;
+            
+            // push argument count
+            stack[sp ++] = MK_INTERNAL ((unsigned char)*ptr);
+            
+            // push microframe pointer
+            stack[sp ++] = MK_INTERNAL (0);
+            
+            ptr = cl.val.gc->val.fn.cp;
+          }
+          break;
+         
           
         
         //----------------------------------------------------------------------
@@ -585,7 +623,7 @@ namespace rho {
             ptr += 4;
             
             auto res = rho_value_match (stack[sp - 1], stack[sp - 2],
-              stack + bp + 4 + loff);
+              stack + bp + 5 + loff);
             -- sp;
             stack[sp - 1] = rho_value_make_bool (res);
           }
@@ -609,6 +647,12 @@ namespace rho {
                 // print:
                 case 0:
                   stack[sp - argc] = rho_builtin_print (stack[sp - 1], *this);
+                  ++ sp;
+                  break;
+                
+                // len:
+                case 1:
+                  stack[sp - argc] = rho_builtin_len (stack[sp - 1], *this);
                   ++ sp;
                   break;
                 }
@@ -662,6 +706,20 @@ namespace rho {
               ++ sp;
               gc_unprotect (stack[sp - 1]);
               ptr += len + 1;
+            }
+            break;
+          
+          // push_float
+          case 0x86:
+            {
+              int mf = GET_INTERNAL (stack[bp + 4]);
+              unsigned int prec = GET_INTERNAL(stack[mf + 1]);
+              
+              auto v = rho_value_make_float (*(double *)ptr, prec, *this->gc);
+              ptr += 8;
+              
+              stack[sp ++] = v;
+              gc_unprotect (v);
             }
             break;
         
@@ -846,6 +904,69 @@ namespace rho {
             }
             break;
           
+          // def_atom
+          case 0xA3:
+            {
+              int num = *(int *)ptr;
+              ptr += 4;
+              
+              const char *name = (const char *)ptr;
+              ptr += std::strlen (name) + 1;
+              
+              if (num == (int)this->atom_names.size ())
+                this->atom_names.push_back (name);
+              else
+                {
+                  if (num > (int)this->atom_names.size ())
+                    this->atom_names.resize (num + 1);
+                  this->atom_names[num] = name;
+                }
+            }
+            break;
+        
+        
+        
+        //----------------------------------------------------------------------
+        // micro-frames
+        //----------------------------------------------------------------------
+          
+          // push_microframe
+          case 0xB0:
+            {
+              -- sp;
+              if (stack[sp].type != RHO_INTEGER)
+                throw vm_error ("push_microframe: precision must be specified using an integer");
+              unsigned int prec10 = mpz_get_ui (stack[sp].val.gc->val.i);
+              unsigned int prec2 = prec_base10_to_bits (prec10);
+              
+              auto start = sp;
+              
+              // push pointer to parent micro-frame
+              stack[sp ++] = MK_INTERNAL (GET_INTERNAL(stack[bp + 4]));
+              
+              // push precision in bits
+              stack[sp ++] = MK_INTERNAL (prec2);
+              
+              // push precision in decimal digits
+              stack[sp ++] = MK_INTERNAL (prec10);
+              
+              // update micro-frame pointer
+              stack[bp + 4].val.i64 = start;
+            }
+            break;
+          
+          // pop_microframe
+          case 0xB1:
+            {
+              int start = GET_INTERNAL (stack[bp + 4]);
+              
+              int pf = GET_INTERNAL (stack[start]); // pointer to previous micro-frame
+              stack[bp + 4].val.i64 = pf;
+              
+              stack[start] = stack[sp - 1];
+              sp = start + 1;
+            }
+            break;
           
           
           
@@ -868,7 +989,7 @@ namespace rho {
                 int a = 5;
             }
             break;
-           
+          
           // exit
           case 0xFF:
             goto done;

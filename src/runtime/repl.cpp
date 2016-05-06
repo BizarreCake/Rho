@@ -197,6 +197,7 @@ namespace rho {
     
     this->handle_imports_pre ();
     this->handle_usings ();
+    this->handle_print ();
     
     // next compile all parsed AST modules
     std::vector<std::shared_ptr<rho::module>> mods;
@@ -252,8 +253,9 @@ namespace rho {
     
     // run
     ++ this->run_num;
-    auto res = this->vm.run (*prg.get ());
-    std::cout << " => " << rho_value_str (res) << std::endl << std::endl;
+    this->vm.run (*prg.get ());
+    //auto res = this->vm.run (*prg.get ());
+    //std::cout << " => " << rho_value_str (res, this->vm) << std::endl << std::endl;
     this->vm.pop_value ();
   }
   
@@ -288,6 +290,30 @@ namespace rho {
     
     this->u_ns.insert (this->u_ns.end (), new_u_ns.begin (), new_u_ns.end ());
     this->u_aliases.insert (this->u_aliases.end (), new_u_aliases.begin (), new_u_aliases.end ());
+  }
+  
+  void
+  rho_repl::handle_print ()
+  {
+    auto p = this->mstore.retrieve ("#this#").ast;
+    auto& stmts = p->get_stmts ();
+    
+    auto last = stmts.back ();
+    if (last->get_type () == AST_EXPR_STMT)
+      {
+        // wrap expression inside a print invocation
+        auto expr = std::static_pointer_cast<ast_expr_stmt> (last)->get_expr ();
+        stmts.pop_back ();
+        
+        auto print_call = std::shared_ptr<ast_fun_call> (new ast_fun_call (
+          std::shared_ptr<ast_ident> (new ast_ident ("print"))));
+          
+        auto fmt_op = std::shared_ptr<ast_binop> (new ast_binop (AST_BINOP_MOD,
+          std::shared_ptr<ast_string> (new ast_string (" => {*:E}\\n")), expr));
+        print_call->add_arg (fmt_op);
+        
+        stmts.push_back (std::shared_ptr<ast_expr_stmt> (new ast_expr_stmt (print_call)));
+      }
   }
   
   void

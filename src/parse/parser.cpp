@@ -100,6 +100,19 @@ namespace rho {
     return ast;
   }
   
+  std::shared_ptr<ast_float>
+  parser::parse_float (lexer::token_stream& strm)
+  {
+    auto tok = strm.peek_next ();
+    if (tok.type != TOK_FLOAT)
+      throw parse_error ("expected float", tok.ln, tok.col);
+    
+    strm.next ();
+    auto ast = std::shared_ptr<ast_float> (new ast_float (tok.val.str));
+    _set_ast_location (ast.get (), tok, this->path);
+    return ast;
+  }
+  
   std::shared_ptr<ast_ident>
   parser::parse_ident (lexer::token_stream& strm)
   {
@@ -476,6 +489,24 @@ namespace rho {
   
   
   
+  std::shared_ptr<ast_n>
+  parser::parse_n (lexer::token_stream& strm)
+  {
+    auto ftok = strm.peek_next ();
+    this->expect (TOK_N, strm);
+    
+    this->expect (TOK_COL, strm);
+    
+    auto prec = this->parse_expr (strm);
+    auto body = this->parse_expr_block (strm);
+    
+    std::shared_ptr<ast_n> ast { new ast_n (prec, body) };
+    _set_ast_location (ast.get (), ftok, this->path);
+    return ast;
+  }
+  
+  
+  
   std::shared_ptr<ast_expr>
   parser::parse_expr_atom_main (lexer::token_stream& strm)
   {
@@ -499,6 +530,9 @@ namespace rho {
       
       case TOK_INTEGER:
         return this->parse_integer (strm);
+      
+      case TOK_FLOAT:
+        return this->parse_float (strm);
       
       case TOK_IDENT:
         return this->parse_ident (strm);
@@ -538,6 +572,9 @@ namespace rho {
       
       case TOK_LET:
         return this->parse_let (strm);
+      
+      case TOK_N:
+        return this->parse_n (strm);
       
       
       case TOK_NOT:

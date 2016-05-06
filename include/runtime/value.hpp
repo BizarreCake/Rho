@@ -21,6 +21,7 @@
 
 #include <string>
 #include <gmp.h>
+#include <mpfr.h>
 #include <stdexcept>
 
 
@@ -43,6 +44,7 @@ namespace rho {
 
   
   // forward decs:
+  class virtual_machine;
   class garbage_collector;
   
   
@@ -62,6 +64,7 @@ namespace rho {
     RHO_VEC,
     RHO_ATOM,
     RHO_STR,
+    RHO_FLOAT,
   };
   
   bool rho_type_is_collectable (rho_type type);
@@ -90,7 +93,9 @@ namespace rho {
     rho_type type;
     union
       {
-        mpz_t i;
+        mpz_t i;  // integer
+        
+        mpfr_t f; // float
         
         // string
         struct
@@ -172,7 +177,7 @@ namespace rho {
   /* 
    * Returns a textual representation of the specified Rho value.
    */
-  std::string rho_value_str (rho_value& v);
+  std::string rho_value_str (rho_value& v, virtual_machine& vm);
   
   
   
@@ -221,6 +226,11 @@ namespace rho {
   rho_value rho_value_make_string (const char *str, long len,
                                    garbage_collector& gc);
   
+  rho_value rho_value_make_float (unsigned int prec, garbage_collector& gc);
+
+  rho_value rho_value_make_float (double val, unsigned int prec,
+                                  garbage_collector& gc);
+  
   
   
   // 
@@ -228,22 +238,22 @@ namespace rho {
   // 
   
   rho_value rho_value_add (rho_value& lhs, rho_value& rhs,
-    garbage_collector& gc);
+    virtual_machine& vm);
   
   rho_value rho_value_sub (rho_value& lhs, rho_value& rhs,
-    garbage_collector& gc);
+    virtual_machine& vm);
   
   rho_value rho_value_mul (rho_value& lhs, rho_value& rhs,
-    garbage_collector& gc);
+    virtual_machine& vm);
   
   rho_value rho_value_div (rho_value& lhs, rho_value& rhs,
-    garbage_collector& gc);
+    virtual_machine& vm);
   
   rho_value rho_value_pow (rho_value& lhs, rho_value& rhs,
-    garbage_collector& gc);
+    virtual_machine& vm);
   
   rho_value rho_value_mod (rho_value& lhs, rho_value& rhs,
-    garbage_collector& gc);
+    virtual_machine& vm);
   
   
   // 

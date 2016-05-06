@@ -18,13 +18,23 @@
 
 #include "runtime/value.hpp"
 #include "runtime/gc/gc.hpp"
+#include "runtime/vm.hpp"
+#include "util/float.hpp"
 #include <stdexcept>
 #include <sstream>
 #include <cstring>
 #include <vector>
 
+#include <iostream> // DEBUG
+
 
 namespace rho {
+  
+  static inline int
+  _max (int a, int b)
+    { return a > b ? a : b; }
+  
+  
   
   bool
   rho_type_is_collectable (rho_type type)
@@ -45,6 +55,7 @@ namespace rho {
       case RHO_EMPTY_LIST:
       case RHO_CONS:
       case RHO_STR:
+      case RHO_FLOAT:
         return true;
       }
     
@@ -83,6 +94,10 @@ namespace rho {
         mpz_clear (v->val.i);
         break;
       
+      case RHO_FLOAT:
+        mpfr_clear (v->val.f);
+        break;
+      
       case RHO_VEC:
         delete[] v->val.vec.vals;
         break;
@@ -117,6 +132,7 @@ namespace rho {
       case RHO_INTERNAL:
       case RHO_ATOM:
       case RHO_STR:
+      case RHO_FLOAT:
         break;
       
       case RHO_UPVAL:
@@ -171,7 +187,7 @@ namespace rho {
    * Returns a textual representation of the specified Rho value.
    */
   std::string
-  rho_value_str (rho_value& v)
+  rho_value_str (rho_value& v, virtual_machine& vm)
   {
     switch (v.type)
       {
@@ -185,27 +201,23 @@ namespace rho {
         return v.val.b ? "true" : "false";
       
       case RHO_ATOM:
-        {
-          std::ostringstream ss;
-          ss << "<atom #" << v.val.i32 << ">";
-          return ss.str ();
-        }
+        return vm.get_atom_name (v.val.i32);
       
       case RHO_CONS:
         {
           std::ostringstream ss;
-          ss << "'(" << rho_value_str (v.val.gc->val.p.fst);
+          ss << "'(" << rho_value_str (v.val.gc->val.p.fst, vm);
           
           auto curr = v.val.gc->val.p.snd;
           while (curr.type == RHO_CONS)
             {
-              ss << " " << rho_value_str (curr.val.gc->val.p.fst);
+              ss << " " << rho_value_str (curr.val.gc->val.p.fst, vm);
               curr = curr.val.gc->val.p.snd;
             }
           if (curr.type == RHO_EMPTY_LIST)
             ss << ")";
           else
-            ss << " . " << rho_value_str (curr) << ")";
+            ss << " . " << rho_value_str (curr, vm) << ")";
           
           return ss.str ();
         }
@@ -220,6 +232,12 @@ namespace rho {
           freefunc (str, s.length () + 1);
           
           return s;
+        }
+      
+      case RHO_FLOAT:
+        {
+          int prec10 = vm.get_base10_prec ();
+          return float_to_str (v.val.gc->val.f, prec10);
         }
       
       case RHO_FUN:
@@ -237,7 +255,7 @@ namespace rho {
           auto& vec = v.val.gc->val.vec;
           for (long i = 0; i < vec.len; ++i)
             {
-              ss << rho_value_str (vec.vals[i]);
+              ss << rho_value_str (vec.vals[i], vm);
               if (i != vec.len - 1)
                 ss << ", ";
             }
@@ -392,10 +410,39 @@ namespace rho {
     return v;
   }
   
+  rho_value
+  rho_value_make_float (unsigned int prec, garbage_collector& gc)
+  {
+    rho_value v;
+    v.type = RHO_FLOAT;
+    
+    auto g = gc.alloc_protected ();
+    g->type = RHO_FLOAT;
+    mpfr_init2 (g->val.f, prec);
+    
+    v.val.gc = g;
+    return v;
+  }
+
+  rho_value
+  rho_value_make_float (double val, unsigned int prec, garbage_collector& gc)
+  {
+    rho_value v;
+    v.type = RHO_FLOAT;
+    
+    auto g = gc.alloc_protected ();
+    g->type = RHO_FLOAT;
+    mpfr_init2 (g->val.f, prec);
+    mpfr_set_d (g->val.f, val, MPFR_RNDN);
+    
+    v.val.gc = g;
+    return v;
+  }
+  
   
   
   static std::string
-  _format_string (gc_value *str, rho_value& args_)
+  _format_string (gc_value *str, rho_value& args_, virtual_machine& vm)
   {
     std::ostringstream ss;
     
@@ -403,7 +450,7 @@ namespace rho {
     if (args_.type == RHO_CONS)
       {
         auto p = args_;
-        while (p.val.gc->val.p.snd.type != RHO_EMPTY_LIST)
+        while (p.val.gc->val.p.snd.type == RHO_CONS)
           {
             args.push_back (p.val.gc->val.p.fst);
             p = p.val.gc->val.p.snd;
@@ -420,6 +467,9 @@ namespace rho {
           {
             ++ i;
             
+            // flags:
+            bool escape_str = false;
+            
             int idx = 0;
             while (i < s.len)
               {
@@ -428,8 +478,40 @@ namespace rho {
                     idx = (idx * 10) + (s.str[i] - '0');
                     ++ i;
                   }
+                else if (s.str[i] == '*')
+                  {
+                    idx = -1;
+                    ++ i;
+                    
+                    if (i == s.len || (s.str[i] != '}' && s.str[i] != ':'))
+                      throw vm_error ("invalid format string");
+                  }
                 else if (s.str[i] == '}')
                   break;
+                else if (s.str[i] == ':')
+                  {
+                    // parse flags
+                    
+                    ++ i;
+                    while (i < s.len)
+                      {
+                        switch (s.str[i++])
+                          {
+                          case 'E': escape_str = true; break;
+                          
+                          case '}': --i; goto flags_done;
+                          
+                          default:
+                            throw vm_error ("invalid flag in format string");
+                          }
+                      }
+                    
+                  flags_done:
+                    
+                    if (i == s.len || s.str[i] != '}')
+                      throw vm_error ("invalid format string");
+                    break;
+                  }
                 else
                   throw vm_error ("invalid format string");
               }
@@ -439,16 +521,28 @@ namespace rho {
             if (idx >= (int)args.size ())
               throw vm_error ("index out of range in format string");
             
-            if (args[idx].type == RHO_STR)
-              ss << args[idx].val.gc->val.s.str;
+            auto arg = (idx == -1) ? args_ : args[idx];
+            if (arg.type == RHO_STR)
+              ss << (escape_str
+                ? _escape_string (arg.val.gc->val.s.str, arg.val.gc->val.s.len)
+                : arg.val.gc->val.s.str);
             else
-              ss << rho_value_str (args[idx]);
+              ss << rho_value_str (arg, vm);
           }
         else if (s.str[i] == '\\')
           {
             if (++i == s.len)
               throw vm_error ("invalid format string");
-            ss << s.str[i];
+            
+            switch (s.str[i])
+              {
+              case 'n': ss << '\n'; break;
+              case 't': ss << '\t'; break;
+              case 'b': ss << '\b'; break;
+              case 'r': ss << '\n'; break;
+              
+              default: ss << s.str[i]; break;
+              }
           }
         else
           ss << s.str[i];
@@ -460,7 +554,7 @@ namespace rho {
   
   
   rho_value
-  rho_value_add (rho_value& lhs, rho_value& rhs, garbage_collector& gc)
+  rho_value_add (rho_value& lhs, rho_value& rhs, virtual_machine& vm)
   {
     switch (lhs.type)
       {
@@ -470,13 +564,55 @@ namespace rho {
           // integer + integer
           case RHO_INTEGER:
             {
-              auto res = rho_value_make_int (gc);
+              auto res = rho_value_make_int (vm.get_gc ());
               auto& dest = res.val.gc->val.i;
               mpz_set (dest, lhs.val.gc->val.i);
               mpz_add (dest, dest, rhs.val.gc->val.i);
               return res;
             }
           
+          // integer + float
+          case RHO_FLOAT:
+            {
+              int prec = mpfr_get_prec (rhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set_z (dest, lhs.val.gc->val.i, MPFR_RNDN);
+              mpfr_add (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
+          default:
+            return rho_value_make_nil ();
+          }
+        break;
+      
+      case RHO_FLOAT:
+        switch (rhs.type)
+          {
+          // float + integer
+          case RHO_INTEGER:
+            {
+              int prec = mpfr_get_prec (lhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_add_z (dest, dest, rhs.val.gc->val.i, MPFR_RNDN);
+              return res;
+            }
+          
+          // float + float
+          case RHO_FLOAT:
+            {
+              int prec = _max (mpfr_get_prec (lhs.val.gc->val.f),
+                mpfr_get_prec (rhs.val.gc->val.f));
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_add (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
           default:
             return rho_value_make_nil ();
           }
@@ -488,7 +624,7 @@ namespace rho {
   }
   
   rho_value
-  rho_value_sub (rho_value& lhs, rho_value& rhs, garbage_collector& gc)
+  rho_value_sub (rho_value& lhs, rho_value& rhs, virtual_machine& vm)
   {
     switch (lhs.type)
       {
@@ -498,13 +634,55 @@ namespace rho {
           // integer + integer
           case RHO_INTEGER:
             {
-              auto res = rho_value_make_int (gc);
+              auto res = rho_value_make_int (vm.get_gc ());
               auto& dest = res.val.gc->val.i;
               mpz_set (dest, lhs.val.gc->val.i);
               mpz_sub (dest, dest, rhs.val.gc->val.i);
               return res;
             }
           
+          // integer + float
+          case RHO_FLOAT:
+            {
+              int prec = mpfr_get_prec (rhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set_z (dest, lhs.val.gc->val.i, MPFR_RNDN);
+              mpfr_sub (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
+          default:
+            return rho_value_make_nil ();
+          }
+        break;
+      
+      case RHO_FLOAT:
+        switch (rhs.type)
+          {
+          // float + integer
+          case RHO_INTEGER:
+            {
+              int prec = mpfr_get_prec (lhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_sub_z (dest, dest, rhs.val.gc->val.i, MPFR_RNDN);
+              return res;
+            }
+          
+          // float + float
+          case RHO_FLOAT:
+            {
+              int prec = _max (mpfr_get_prec (lhs.val.gc->val.f),
+                mpfr_get_prec (rhs.val.gc->val.f));
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_sub (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
           default:
             return rho_value_make_nil ();
           }
@@ -516,7 +694,7 @@ namespace rho {
   }
   
   rho_value
-  rho_value_mul (rho_value& lhs, rho_value& rhs, garbage_collector& gc)
+  rho_value_mul (rho_value& lhs, rho_value& rhs, virtual_machine& vm)
   {
     switch (lhs.type)
       {
@@ -526,13 +704,55 @@ namespace rho {
           // integer + integer
           case RHO_INTEGER:
             {
-              auto res = rho_value_make_int (gc);
+              auto res = rho_value_make_int (vm.get_gc ());
               auto& dest = res.val.gc->val.i;
               mpz_set (dest, lhs.val.gc->val.i);
               mpz_mul (dest, dest, rhs.val.gc->val.i);
               return res;
             }
           
+          // integer + float
+          case RHO_FLOAT:
+            {
+              int prec = mpfr_get_prec (rhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set_z (dest, lhs.val.gc->val.i, MPFR_RNDN);
+              mpfr_mul (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
+          default:
+            return rho_value_make_nil ();
+          }
+        break;
+      
+      case RHO_FLOAT:
+        switch (rhs.type)
+          {
+          // float + integer
+          case RHO_INTEGER:
+            {
+              int prec = mpfr_get_prec (lhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_mul_z (dest, dest, rhs.val.gc->val.i, MPFR_RNDN);
+              return res;
+            }
+          
+          // float + float
+          case RHO_FLOAT:
+            {
+              int prec = _max (mpfr_get_prec (lhs.val.gc->val.f),
+                mpfr_get_prec (rhs.val.gc->val.f));
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_mul (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
           default:
             return rho_value_make_nil ();
           }
@@ -544,7 +764,7 @@ namespace rho {
   }
   
   rho_value
-  rho_value_div (rho_value& lhs, rho_value& rhs, garbage_collector& gc)
+  rho_value_div (rho_value& lhs, rho_value& rhs, virtual_machine& vm)
   {
     switch (lhs.type)
       {
@@ -554,38 +774,52 @@ namespace rho {
           // integer + integer
           case RHO_INTEGER:
             {
-              auto res = rho_value_make_int (gc);
+              auto res = rho_value_make_int (vm.get_gc ());
               auto& dest = res.val.gc->val.i;
               mpz_set (dest, lhs.val.gc->val.i);
               mpz_tdiv_q (dest, dest, rhs.val.gc->val.i);
               return res;
             }
           
+          // integer + float
+          case RHO_FLOAT:
+            {
+              int prec = mpfr_get_prec (rhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set_z (dest, lhs.val.gc->val.i, MPFR_RNDN);
+              mpfr_div (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
           default:
             return rho_value_make_nil ();
           }
         break;
       
-      default:
-        return rho_value_make_nil ();
-      }
-  }
-  
-  rho_value
-  rho_value_pow (rho_value& lhs, rho_value& rhs, garbage_collector& gc)
-  {
-    switch (lhs.type)
-      {
-      case RHO_INTEGER:
+      case RHO_FLOAT:
         switch (rhs.type)
           {
-          // integer + integer
+          // float + integer
           case RHO_INTEGER:
             {
-              auto res = rho_value_make_int (gc);
-              auto& dest = res.val.gc->val.i;
-              mpz_set (dest, lhs.val.gc->val.i);
-              mpz_pow_ui (dest, dest, mpz_get_ui (rhs.val.gc->val.i));
+              int prec = mpfr_get_prec (lhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_div_z (dest, dest, rhs.val.gc->val.i, MPFR_RNDN);
+              return res;
+            }
+          
+          // float + float
+          case RHO_FLOAT:
+            {
+              int prec = _max (mpfr_get_prec (lhs.val.gc->val.f),
+                mpfr_get_prec (rhs.val.gc->val.f));
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_div (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
               return res;
             }
           
@@ -600,7 +834,7 @@ namespace rho {
   }
   
   rho_value
-  rho_value_mod (rho_value& lhs, rho_value& rhs, garbage_collector& gc)
+  rho_value_pow (rho_value& lhs, rho_value& rhs, virtual_machine& vm)
   {
     switch (lhs.type)
       {
@@ -610,10 +844,129 @@ namespace rho {
           // integer + integer
           case RHO_INTEGER:
             {
-              auto res = rho_value_make_int (gc);
+              auto res = rho_value_make_int (vm.get_gc ());
+              auto& dest = res.val.gc->val.i;
+              mpz_set (dest, lhs.val.gc->val.i);
+              mpz_pow_ui (dest, dest, mpz_get_ui (rhs.val.gc->val.i));
+              return res;
+            }
+          
+          // integer + float
+          case RHO_FLOAT:
+            {
+              int prec = mpfr_get_prec (rhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set_z (dest, lhs.val.gc->val.i, MPFR_RNDN);
+              mpfr_pow (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
+          default:
+            return rho_value_make_nil ();
+          }
+        break;
+      
+      case RHO_FLOAT:
+        switch (rhs.type)
+          {
+          // float + integer
+          case RHO_INTEGER:
+            {
+              int prec = mpfr_get_prec (lhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_pow_z (dest, dest, rhs.val.gc->val.i, MPFR_RNDN);
+              return res;
+            }
+          
+          // float + float
+          case RHO_FLOAT:
+            {
+              int prec = _max (mpfr_get_prec (lhs.val.gc->val.f),
+                mpfr_get_prec (rhs.val.gc->val.f));
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_pow (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
+          default:
+            return rho_value_make_nil ();
+          }
+        break;
+      
+      default:
+        return rho_value_make_nil ();
+      }
+  }
+  
+  rho_value
+  rho_value_mod (rho_value& lhs, rho_value& rhs, virtual_machine& vm)
+  {
+    switch (lhs.type)
+      {
+      case RHO_INTEGER:
+        switch (rhs.type)
+          {
+          // integer + integer
+          case RHO_INTEGER:
+            {
+              auto res = rho_value_make_int (vm.get_gc ());
               auto& dest = res.val.gc->val.i;
               mpz_set (dest, lhs.val.gc->val.i);
               mpz_tdiv_r (dest, dest, rhs.val.gc->val.i);
+              return res;
+            }
+          
+          // integer + float
+          case RHO_FLOAT:
+            {
+              int prec = mpfr_get_prec (rhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set_z (dest, lhs.val.gc->val.i, MPFR_RNDN);
+              mpfr_fmod (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
+              return res;
+            }
+          
+          default:
+            return rho_value_make_nil ();
+          }
+        break;
+      
+      case RHO_FLOAT:
+        switch (rhs.type)
+          {
+          // float + integer
+          case RHO_INTEGER:
+            {
+              int prec = mpfr_get_prec (lhs.val.gc->val.f);
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              
+              mpfr_t tmp;
+              mpfr_init_set_z (tmp, rhs.val.gc->val.i, MPFR_RNDN);
+              
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_fmod (dest, dest, tmp, MPFR_RNDN);
+              
+              mpfr_clear (tmp);
+              
+              return res;
+            }
+          
+          // float + float
+          case RHO_FLOAT:
+            {
+              int prec = _max (mpfr_get_prec (lhs.val.gc->val.f),
+                mpfr_get_prec (rhs.val.gc->val.f));
+              auto res = rho_value_make_float (prec, vm.get_gc ());
+              auto& dest = res.val.gc->val.f;
+              mpfr_set (dest, lhs.val.gc->val.f, MPFR_RNDN);
+              mpfr_fmod (dest, dest, rhs.val.gc->val.f, MPFR_RNDN);
               return res;
             }
           
@@ -624,8 +977,8 @@ namespace rho {
       
       case RHO_STR:
         {
-          auto str = _format_string (lhs.val.gc, rhs);
-          auto res = rho_value_make_string (str.c_str (), str.length (), gc);
+          auto str = _format_string (lhs.val.gc, rhs, vm);
+          auto res = rho_value_make_string (str.c_str (), str.length (), vm.get_gc ());
           return res;
         }
         break;
@@ -790,6 +1143,9 @@ namespace rho {
       case RHO_INTEGER:
         return mpz_sgn (v.val.gc->val.i) == 0;
       
+      case RHO_FLOAT:
+        return mpfr_sgn (v.val.gc->val.f) == 0;
+      
       default:
         return false;
       }
@@ -818,6 +1174,9 @@ namespace rho {
       
       case RHO_INTEGER:
         return mpz_cmp (lhs.val.gc->val.i, rhs.val.gc->val.i) == 0;
+      
+      case RHO_FLOAT:
+        return mpfr_cmp (lhs.val.gc->val.f, rhs.val.gc->val.f) == 0;
       
       case RHO_INTERNAL:
         return lhs.val.i64 == rhs.val.i64;
@@ -853,6 +1212,9 @@ namespace rho {
       
       case RHO_INTEGER:
         return mpz_cmp (pat.val.gc->val.i, val.val.gc->val.i) == 0;
+      
+      case RHO_FLOAT:
+        return mpfr_cmp (pat.val.gc->val.f, val.val.gc->val.f) == 0;
       
       case RHO_BOOL:
         return pat.val.b == val.val.b;

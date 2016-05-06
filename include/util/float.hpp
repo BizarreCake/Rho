@@ -16,20 +16,26 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef _RHO__RUNTIME__BUILTINS__H_
-#define _RHO__RUNTIME__BUILTINS__H_
+#ifndef _RHO__UTIL__FLOAT__H_
+#define _RHO__UTIL__FLOAT__H_
+
+#include <mpfr.h>
+#include <string>
 
 
 namespace rho {
   
-  // forward decs:
-  class virtual_machine;
-  struct rho_value;
+  /* 
+   * Computes how much bits are required to represent a floating point number
+   * with at least :digits: decimal digits after the decimal point.
+   */
+  int prec_base10_to_bits (int digits);
   
-  
-  rho_value rho_builtin_print (rho_value& p, virtual_machine& vm);
-  
-  rho_value rho_builtin_len (rho_value& p, virtual_machine& vm);
+  /* 
+   * Converts the specified floating number into a string in base 10, with the
+   * specified amount of digits after the decimal point.
+   */
+  std::string float_to_str (mpfr_t f, int prec10);
 }
 
 #endif

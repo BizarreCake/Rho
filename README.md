@@ -31,7 +31,7 @@ import std:streams;
 var fibs = ls:cons(0, ls:cons(1, ls:map2(fun (a, b) { a + b },
   ls:relay(fun () { fibs }), ls:cdr(ls:relay(fun () { fibs })))));
 
-print(ls:index(fibs, 100));
+print(ls:at(fibs, 100));
 ```
 
 The snippet above uses the partially-implemented standard library `std:streams`

@@ -58,6 +58,7 @@ namespace rho {
     std::unordered_map<std::string, int> globs;
     int next_glob;
     std::vector<std::shared_ptr<program>> progs;
+    std::unordered_set<std::shared_ptr<fun_prototype>> protos;
     
     std::unordered_map<std::string, import_entry> imps;
     std::unordered_map<std::string, int> mods;

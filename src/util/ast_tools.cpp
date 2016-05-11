@@ -17,6 +17,7 @@
  */
 
 #include "util/ast_tools.hpp"
+#include <unordered_set>
 
 
 namespace rho {
@@ -356,6 +357,35 @@ namespace rho {
         }
       
       return atoms;
+    }
+    
+    
+    
+    /* 
+     * Extracts all identifier ocurrences from the specified AST node.
+     */
+    std::vector<std::string>
+    extract_idents (std::shared_ptr<ast_node> node)
+    {
+      std::vector<std::string> names;
+      std::unordered_set<std::string> name_set;
+      
+      ast_tools::traverse_dfs (node,
+        [&] (std::shared_ptr<ast_node> node) -> traverse_result {
+          if (node->get_type () == AST_IDENT)
+            {
+              auto name = std::static_pointer_cast<ast_ident> (node)->get_value ();
+              if (name_set.find (name) == name_set.end ())
+                {
+                  names.push_back (name);
+                  name_set.insert (name);
+                }
+            }
+          
+          return TR_CONTINUE;
+        });
+      
+      return names;
     }
   }
 }

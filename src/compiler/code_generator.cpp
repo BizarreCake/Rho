@@ -370,6 +370,12 @@ namespace rho {
   
   
   void
+  code_generator::emit_get_arg_pack ()
+  {
+    this->put_byte (0x20);
+  }
+  
+  void
   code_generator::emit_mk_fn (int lbl)
   {
     this->put_byte (0x21);
@@ -463,6 +469,13 @@ namespace rho {
   {
     this->put_byte (0x2E);
     this->put_byte (argc);
+  }
+  
+  void
+  code_generator::emit_pack_args (unsigned char start)
+  {
+    this->put_byte (0x2F);
+    this->put_byte (start);
   }
   
   

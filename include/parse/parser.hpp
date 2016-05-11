@@ -111,12 +111,15 @@ namespace rho {
                                                   bool in_block = false);
     std::shared_ptr<ast_using> parse_using (lexer::token_stream& strm,
                                             bool in_block = false);
+    std::shared_ptr<ast_fun_def> parse_fun_def (lexer::token_stream& strm);
     std::shared_ptr<ast_stmt> parse_stmt (lexer::token_stream& strm,
                                           bool in_block = false);
     
     
     void expect (token_type type, lexer::token_stream& strm);
     void consume_scol (lexer::token_stream& strm, bool in_block = false);
+    
+    std::shared_ptr<ast_stmt> convert_def (std::shared_ptr<ast_binop> bop);
   };
 }
 

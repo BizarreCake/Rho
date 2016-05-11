@@ -31,6 +31,7 @@ namespace rho {
       
       { "car", &compiler::compile_builtin_car },
       { "cdr", &compiler::compile_builtin_cdr },
+      { "cons", &compiler::compile_builtin_cons },
       { "breakpoint", &compiler::compile_builtin_breakpoint },
       { "print", &compiler::compile_builtin_print },
       { "len", &compiler::compile_builtin_len },
@@ -52,7 +53,13 @@ namespace rho {
   void
   compiler::compile_builtin_car (std::shared_ptr<ast_fun_call> expr)
   {
-    // TODO: errors
+    if (expr->get_args ().size () != 1)
+      {
+        this->errs.report (ERR_ERROR,
+          "builtin `car' expects exactly 1 argument",
+          expr->get_location ());
+        return;
+      }
     
     for (auto a : expr->get_args ())
       this->compile_expr (a);
@@ -62,11 +69,33 @@ namespace rho {
   void
   compiler::compile_builtin_cdr (std::shared_ptr<ast_fun_call> expr)
   {
-    // TODO: errors
+    if (expr->get_args ().size () != 1)
+      {
+        this->errs.report (ERR_ERROR,
+          "builtin `cdr' expects exactly 1 argument",
+          expr->get_location ());
+        return;
+      }
     
     for (auto a : expr->get_args ())
       this->compile_expr (a);
     this->cgen.emit_cdr ();
+  }
+  
+  void
+  compiler::compile_builtin_cons (std::shared_ptr<ast_fun_call> expr)
+  {
+    if (expr->get_args ().size () != 2)
+      {
+        this->errs.report (ERR_ERROR,
+          "builtin `cons' expects exactly 2 arguments",
+          expr->get_location ());
+        return;
+      }
+    
+    for (auto a : expr->get_args ())
+      this->compile_expr (a);
+    this->cgen.emit_cons ();
   }
   
   
@@ -86,7 +115,13 @@ namespace rho {
   void
   compiler::compile_builtin_print (std::shared_ptr<ast_fun_call> expr)
   {
-    // TODO: errors
+    if (expr->get_args ().size () != 1)
+      {
+        this->errs.report (ERR_ERROR,
+          "builtin `print' expects exactly 1 argument",
+          expr->get_location ());
+        return;
+      }
     
     for (auto a : expr->get_args ())
       this->compile_expr (a);
@@ -98,7 +133,13 @@ namespace rho {
   void
   compiler::compile_builtin_len (std::shared_ptr<ast_fun_call> expr)
   {
-    // TODO: errors
+    if (expr->get_args ().size () != 1)
+      {
+        this->errs.report (ERR_ERROR,
+          "builtin `len' expects exactly 1 argument",
+          expr->get_location ());
+        return;
+      }
     
     for (auto a : expr->get_args ())
       this->compile_expr (a);

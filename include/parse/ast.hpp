@@ -61,6 +61,7 @@ namespace rho {
     AST_USING,
     AST_LET,
     AST_N,
+    AST_FUN_DEF,
   };
   
   
@@ -81,6 +82,7 @@ namespace rho {
     
   public:
     inline const location& get_location() const { return this->loc; }
+    inline void set_location (const location& loc) { this->loc = loc; }
     
     void
     set_location (const std::string& path, int ln, int col)
@@ -91,6 +93,11 @@ namespace rho {
     
   public:
     virtual ast_node_type get_type () const = 0;
+    
+    /* 
+     * Returns a deep-copy of the node.
+     */
+    virtual std::shared_ptr<ast_node> clone () const = 0;
   };
   
   
@@ -115,6 +122,12 @@ namespace rho {
   {
   public:
     virtual ast_node_type get_type () const override { return AST_EMPTY_STMT; }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_empty_stmt ());
+    }
   };
   
   /* 
@@ -133,6 +146,14 @@ namespace rho {
     ast_expr_stmt (std::shared_ptr<ast_expr> expr)
       : expr (expr)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_expr_stmt (std::static_pointer_cast<ast_expr> (this->expr->clone ())));
+    }
   };
   
   
@@ -153,6 +174,13 @@ namespace rho {
     ast_integer (const std::string& val)
       : str (val)
       { }
+  
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_integer (this->str));
+    }
   };
   
   /* 
@@ -171,6 +199,13 @@ namespace rho {
     ast_float (const std::string& val)
       : str (val)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_float (this->str));
+    }
   };
   
   /* 
@@ -182,6 +217,7 @@ namespace rho {
     
   public:
     inline const std::string& get_value () const { return this->str; }
+    inline void set_value (const std::string& str) { this->str = str; }
     
     virtual ast_node_type get_type () const override { return AST_IDENT; }
     
@@ -189,6 +225,13 @@ namespace rho {
     ast_ident (const std::string& val)
       : str (val)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_ident (this->str));
+    }
   };
   
   /* 
@@ -198,6 +241,13 @@ namespace rho {
   {
   public:
     virtual ast_node_type get_type () const override { return AST_NIL; }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_nil ());
+    }
   };
   
   /* 
@@ -217,6 +267,13 @@ namespace rho {
     ast_bool (bool val)
       : val (val)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_bool (this->val));
+    }
   };
   
   /* 
@@ -235,6 +292,15 @@ namespace rho {
     void
     push_back (std::shared_ptr<ast_expr> e)
       { this->exprs.push_back (e); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_vector> (new ast_vector ());
+      for (auto e : this->exprs)
+        nc->push_back (std::static_pointer_cast<ast_expr> (e->clone ()));
+      return nc;
+    }
   };
   
   
@@ -255,6 +321,15 @@ namespace rho {
     void
     push_back (std::shared_ptr<ast_stmt> stmt)
       { this->stmts.push_back (stmt); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_expr_block> (new ast_expr_block ());
+      for (auto s : this->stmts)
+        nc->push_back (std::static_pointer_cast<ast_stmt> (s->clone ()));
+      return nc;
+    }
   };
   
   /* 
@@ -273,6 +348,15 @@ namespace rho {
     void
     push_back (std::shared_ptr<ast_stmt> stmt)
       { this->stmts.push_back (stmt); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_stmt_block> (new ast_stmt_block ());
+      for (auto s : this->stmts)
+        nc->push_back (std::static_pointer_cast<ast_stmt> (s->clone ()));
+      return nc;
+    }
   };
   
   
@@ -303,6 +387,15 @@ namespace rho {
     ast_namespace (const std::string& name, std::shared_ptr<ast_stmt_block> body)
       : name (name), body (body)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_namespace (this->name,
+          std::static_pointer_cast<ast_stmt_block> (this->body->clone ())));
+    }
   };
   
   
@@ -330,6 +423,15 @@ namespace rho {
     ast_unop (ast_unop_type op, std::shared_ptr<ast_expr> opr)
       : op (op), opr (opr)
       { }
+  
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_unop (this->op,
+          std::static_pointer_cast<ast_expr> (this->opr->clone ())));
+    }
   };
   
   
@@ -352,6 +454,7 @@ namespace rho {
     AST_BINOP_OR,
     
     AST_BINOP_ASSIGN,
+    AST_BINOP_DEF,
   };
   
   /* 
@@ -368,29 +471,23 @@ namespace rho {
     inline std::shared_ptr<ast_expr> get_rhs () { return this->rhs; }
     
     virtual ast_node_type get_type () const override { return AST_BINOP; }
-    /* 
-   * Identifier.
-   */
-  class ast_ident: public ast_expr
-  {
-    std::string str;
     
-  public:
-    inline const std::string& get_value () const { return this->str; }
-    
-    virtual ast_node_type get_type () const override { return AST_IDENT; }
-    
-  public:
-    ast_ident (const std::string& val)
-      : str (val)
-      { }
-  };
   public:
     ast_binop (ast_binop_type op,
                std::shared_ptr<ast_expr> lhs,
                std::shared_ptr<ast_expr> rhs)
       : op (op), lhs (lhs), rhs (rhs)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_binop (this->op,
+          std::static_pointer_cast<ast_expr> (this->lhs->clone ()),
+          std::static_pointer_cast<ast_expr> (this->rhs->clone ())));
+    }
   };
   
   
@@ -414,6 +511,16 @@ namespace rho {
     ast_var_def (std::shared_ptr<ast_ident> var, std::shared_ptr<ast_expr> val)
       : var (var), val (val)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_var_def (
+          std::static_pointer_cast<ast_ident> (this->var->clone ()),
+          std::static_pointer_cast<ast_expr> (this->val->clone ())));
+    }
   };
   
   
@@ -424,11 +531,11 @@ namespace rho {
    */
   class ast_fun: public ast_expr
   {
-    std::vector<std::shared_ptr<ast_ident>> params;
+    std::vector<std::string> params;
     std::shared_ptr<ast_stmt_block> body;
     
   public:
-    inline std::vector<std::shared_ptr<ast_ident>>& get_params () { return this->params; }
+    inline std::vector<std::string>& get_params () { return this->params; }
     inline std::shared_ptr<ast_stmt_block>& get_body () { return this->body; }
     
     virtual ast_node_type get_type () const override { return AST_FUN; }
@@ -439,8 +546,17 @@ namespace rho {
       { this->body = body; }
     
     void
-    add_param (std::shared_ptr<ast_ident> p)
+    add_param (const std::string& p)
       { this->params.push_back (p); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_fun> (new ast_fun ());
+      nc->set_body (std::static_pointer_cast<ast_stmt_block> (this->body->clone ()));
+      nc->params = this->params;
+      return nc;
+    }
   };
   
   
@@ -467,6 +583,16 @@ namespace rho {
     void
     add_arg (std::shared_ptr<ast_expr> expr)
       { this->args.push_back (expr); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_fun_call> (new ast_fun_call (
+        std::static_pointer_cast<ast_expr> (this->fun->clone ())));
+      for (auto e : this->args)
+        nc->add_arg (std::static_pointer_cast<ast_expr> (e->clone ()));
+      return nc;
+    }
   };
   
   
@@ -493,6 +619,17 @@ namespace rho {
             std::shared_ptr<ast_expr> ant)
       : test (test), conseq (conseq), ant (ant)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_if (
+          this->test ? std::static_pointer_cast<ast_expr> (this->test->clone ()) : std::shared_ptr<ast_expr> (),
+          this->conseq ? std::static_pointer_cast<ast_expr> (this->conseq->clone ()) : std::shared_ptr<ast_expr> (),
+          this->ant ? std::static_pointer_cast<ast_expr> (this->ant->clone ()) : std::shared_ptr<ast_expr> ()));
+    }
   };
   
   
@@ -516,6 +653,16 @@ namespace rho {
     ast_cons (std::shared_ptr<ast_expr> fst, std::shared_ptr<ast_expr> snd)
       : fst (fst), snd (snd)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_cons (
+          std::static_pointer_cast<ast_expr> (this->fst->clone ()),
+          std::static_pointer_cast<ast_expr> (this->snd->clone ())));
+    }
   };
   
   
@@ -536,6 +683,15 @@ namespace rho {
     void
     add_elem (std::shared_ptr<ast_expr> e)
       { this->elems.push_back (e); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_list> (new ast_list ());
+      for (auto e : this->elems)
+        nc->add_elem (std::static_pointer_cast<ast_expr> (e->clone ()));
+      return nc;
+    }
   };
 
 
@@ -577,6 +733,19 @@ namespace rho {
     void
     set_else_case (std::shared_ptr<ast_expr> else_body)
       { this->else_body = else_body; }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_match> (
+        new ast_match (std::static_pointer_cast<ast_expr> (this->expr->clone ())));
+      for (auto& c : this->cases)
+        nc->add_case (std::static_pointer_cast<ast_expr> (c.pat->clone ()),
+                      std::static_pointer_cast<ast_expr> (c.body->clone ()));
+      if (this->else_body)
+        nc->set_else_case (std::static_pointer_cast<ast_expr> (this->else_body->clone ()));
+      return nc;
+    }
   };
   
   
@@ -598,6 +767,13 @@ namespace rho {
     ast_module (const std::string& name)
       : name (name)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_module (this->name));
+    }
   };
   
   
@@ -619,6 +795,13 @@ namespace rho {
     ast_import (const std::string& name)
       : name (name)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_import (this->name));
+    }
   };
   
   
@@ -640,6 +823,15 @@ namespace rho {
     void
     add_export (const std::string& name)
       { this->names.push_back (name); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_export> (new ast_export ());
+      for (auto& n : this->names)
+        nc->add_export (n);
+      return nc;
+    }
   };
   
   
@@ -661,6 +853,16 @@ namespace rho {
   public:
     ast_ret () { }
     ast_ret (std::shared_ptr<ast_expr> expr) : expr (expr) { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_ret (this->expr
+          ? std::static_pointer_cast<ast_expr> (this->expr->clone ())
+          : std::shared_ptr<ast_expr> ()));
+    }
   };
   
   
@@ -685,6 +887,16 @@ namespace rho {
                    std::shared_ptr<ast_expr> index)
       : expr (expr), index (index)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (
+        new ast_subscript (
+          std::static_pointer_cast<ast_expr> (this->expr->clone ()),
+          std::static_pointer_cast<ast_expr> (this->index->clone ())));
+    }
   };
   
   
@@ -705,6 +917,13 @@ namespace rho {
     ast_atom (const std::string& val)
       : str (val)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_atom (this->str));
+    }
   };
   
   /* 
@@ -724,6 +943,13 @@ namespace rho {
     ast_atom_def (const std::string& name)
       : name (name)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_atom_def (this->name));
+    }
   };
   
   
@@ -744,6 +970,13 @@ namespace rho {
     ast_string (const std::string& val)
       : str (val)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_string (this->str));
+    }
   };
   
   
@@ -772,6 +1005,13 @@ namespace rho {
     ast_using (const std::string& ns_name, const std::string& alias)
       : ns (ns_name), alias (alias)
       { }
+    
+  public:
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_using (this->ns, this->alias));
+    }
   };
   
   
@@ -803,6 +1043,16 @@ namespace rho {
     void
     add_def (const std::string& name, std::shared_ptr<ast_expr> val)
       { this->defs.push_back (std::make_pair (name, val)); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_let> (new ast_let (
+        std::static_pointer_cast<ast_expr> (this->body->clone ())));
+      for (auto& p : this->defs)
+        nc->add_def (p.first, std::static_pointer_cast<ast_expr> (p.second->clone ()));
+      return nc;
+    }
   };
   
   
@@ -826,6 +1076,71 @@ namespace rho {
     ast_n (std::shared_ptr<ast_expr> prec, std::shared_ptr<ast_expr_block> body)
       : prec (prec), body (body)
       { }
+    
+  public:
+    void
+    set_body (std::shared_ptr<ast_expr_block> body)
+      { this->body = body; }
+  
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      return std::shared_ptr<ast_node> (new ast_n (
+        std::static_pointer_cast<ast_expr> (this->prec->clone ()),
+        std::static_pointer_cast<ast_expr_block> (this->body->clone ())));
+    }
+  };
+  
+  
+  
+  /* 
+   * Named function definition statement.
+   *     fun <name> (<params>...) { <body> } 
+   */
+  class ast_fun_def: public ast_stmt
+  {
+    std::string name;
+    std::vector<std::string> params;
+    std::shared_ptr<ast_stmt_block> body;
+    std::shared_ptr<ast_expr> guard;
+    
+  public:
+    inline const std::string& get_name () { return this->name; }
+    inline std::vector<std::string>& get_params () { return this->params; }
+    inline std::shared_ptr<ast_stmt_block>& get_body () { return this->body; }
+    inline std::shared_ptr<ast_expr>& get_guard () { return this->guard; }
+    
+    virtual ast_node_type get_type () const override { return AST_FUN_DEF; }
+    
+  public:
+    ast_fun_def (const std::string& name)
+      : name (name)
+      { }
+    
+  public:
+    void
+    set_body (std::shared_ptr<ast_stmt_block> body)
+      { this->body = body; }
+    
+    void
+    set_guard (std::shared_ptr<ast_expr> guard)
+      { this->guard = guard; }
+   
+    void
+    add_param (const std::string& p)
+      { this->params.push_back (p); }
+    
+    virtual std::shared_ptr<ast_node>
+    clone () const override
+    {
+      auto nc = std::shared_ptr<ast_fun_def> (new ast_fun_def (this->name));
+      nc->set_body (std::static_pointer_cast<ast_stmt_block> (this->body->clone ()));
+      if (this->guard)
+        nc->set_guard (std::static_pointer_cast<ast_expr> (this->guard->clone ()));
+      for (auto& p: this->params)
+        nc->add_param (p);
+      return nc;
+    }
   };
 }
 

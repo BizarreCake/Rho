@@ -70,6 +70,13 @@ namespace rho {
      * Extracts top-level atom definitions from the specified AST program.
      */
     std::vector<std::string> extract_atom_defs (std::shared_ptr<ast_program> node);
+    
+    
+    
+    /* 
+     * Extracts all identifier occurrences from the specified AST node.
+     */
+    std::vector<std::string> extract_idents (std::shared_ptr<ast_node> node);
   };
 }
 

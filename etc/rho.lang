@@ -65,7 +65,10 @@
         <context id="builtin-functions" style-ref="builtin-function">
           <keyword>car</keyword>
           <keyword>cdr</keyword>
+          <keyword>cons</keyword>
           <keyword>print</keyword>
+          <keyword>len</keyword>
+          <keyword>breakpoint</keyword>
         </context>
         
         <context id="atoms" style-ref="atom">

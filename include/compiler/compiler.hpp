@@ -78,6 +78,7 @@ namespace rho {
     std::shared_ptr<module> mod;  // module being compiled
     module_store& mstore;
     std::unordered_map<std::string, name_import_t> name_imps;
+    std::unordered_map<std::string, std::shared_ptr<fun_prototype>> proto_imps;
     
     std::vector<std::string> idirs;
     std::string wd;
@@ -91,6 +92,7 @@ namespace rho {
   
     std::unordered_set<std::string> atoms;
     std::unordered_set<std::string> known_atoms;
+    std::unordered_set<std::shared_ptr<fun_prototype>> known_protos;
   
   public:
     inline error_list& get_errors () { return this->errs; }
@@ -130,6 +132,8 @@ namespace rho {
     
     void add_known_atom (const std::string& name);
     
+    void add_known_fun_proto (std::shared_ptr<fun_prototype> proto);
+    
   private:
     void push_expr_frame (bool last);
     void pop_expr_frame ();
@@ -139,6 +143,11 @@ namespace rho {
                               std::shared_ptr<scope_frame> scope);
     std::string qualify_atom_name (const std::string& name,
                                    bool check_exists = true);
+    
+    bool try_compile_named_fun_call (std::shared_ptr<ast_fun_call> expr);
+    
+    void process_imports ();
+    void process_import (std::shared_ptr<ast_import> stmt);
     
   private:
     void compile_program (std::shared_ptr<ast_program> program);
@@ -154,6 +163,7 @@ namespace rho {
     void compile_atom_def (std::shared_ptr<ast_atom_def> stmt);
     void compile_stmt_block (std::shared_ptr<ast_stmt_block> stmt);
     void compile_using (std::shared_ptr<ast_using> stmt);
+    void compile_fun_def (std::shared_ptr<ast_fun_def> stmt);
     void compile_stmt (std::shared_ptr<ast_stmt> stmt);
     
     void compile_integer (std::shared_ptr<ast_integer> expr);
@@ -189,6 +199,7 @@ namespace rho {
     bool compile_builtin (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_car (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_cdr (std::shared_ptr<ast_fun_call> expr);
+    void compile_builtin_cons (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_breakpoint (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_print (std::shared_ptr<ast_fun_call> expr);
     void compile_builtin_len (std::shared_ptr<ast_fun_call> expr);

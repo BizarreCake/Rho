@@ -211,6 +211,11 @@ namespace rho {
               this->comp.alloc_globals (GLOBAL_PREALLOC_COUNT);
             else
               this->comp.dont_alloc_globals ();
+            
+            for (auto p : this->globs)
+              this->comp.add_known_global (p.first, p.second);
+            for (auto proto : this->protos)
+              this->comp.add_known_fun_proto (proto);
           }
         else
           this->comp.alloc_globals ();
@@ -298,35 +303,65 @@ namespace rho {
     auto p = this->mstore.retrieve ("#this#").ast;
     auto& stmts = p->get_stmts ();
     
+    if (stmts.empty ())
+      return;
+    
     auto last = stmts.back ();
     if (last->get_type () == AST_EXPR_STMT)
       {
         // wrap expression inside a print invocation
         auto expr = std::static_pointer_cast<ast_expr_stmt> (last)->get_expr ();
-        stmts.pop_back ();
         
-        auto print_call = std::shared_ptr<ast_fun_call> (new ast_fun_call (
-          std::shared_ptr<ast_ident> (new ast_ident ("print"))));
-          
-        auto fmt_op = std::shared_ptr<ast_binop> (new ast_binop (AST_BINOP_MOD,
-          std::shared_ptr<ast_string> (new ast_string (" => {*:E}\\n")), expr));
-        print_call->add_arg (fmt_op);
-        
-        stmts.push_back (std::shared_ptr<ast_expr_stmt> (new ast_expr_stmt (print_call)));
+        if (expr->get_type () == AST_N)
+          {
+            // place print call inside the N expression.
+            
+            auto n = std::static_pointer_cast<ast_n> (expr);
+            auto body = n->get_body ();
+            
+            auto print_call = std::shared_ptr<ast_fun_call> (new ast_fun_call (
+              std::shared_ptr<ast_ident> (new ast_ident ("print"))));
+              
+            auto fmt_op = std::shared_ptr<ast_binop> (new ast_binop (AST_BINOP_MOD,
+              std::shared_ptr<ast_string> (new ast_string (" => {*:E}\\n")), body));
+            print_call->add_arg (fmt_op);
+            
+            auto nbody = std::make_shared<ast_expr_block> ();
+            nbody->push_back (std::make_shared<ast_expr_stmt> (print_call));
+            n->set_body (nbody);
+          }
+        else
+          {
+            stmts.pop_back ();
+            
+            auto print_call = std::shared_ptr<ast_fun_call> (new ast_fun_call (
+              std::shared_ptr<ast_ident> (new ast_ident ("print"))));
+              
+            auto fmt_op = std::shared_ptr<ast_binop> (new ast_binop (AST_BINOP_MOD,
+              std::shared_ptr<ast_string> (new ast_string (" => {*:E}\\n")), expr));
+            print_call->add_arg (fmt_op);
+            
+            stmts.push_back (std::shared_ptr<ast_expr_stmt> (new ast_expr_stmt (print_call)));
+          }
       }
   }
   
   void
   rho_repl::handle_globals ()
   {
-    auto p = this->mstore.retrieve ("#this#").ast;
+    auto& ent = this->mstore.retrieve ("#this#");
+    auto p = ent.ast;
     
-    auto vars = ast_tools::extract_global_defs (p);
-    for (auto& var_name : vars)
+    auto scope = ent.van->get_scope (p);
+    for (auto g : scope->get_globals ())
       {
-        this->globs[var_name] = this->next_glob++;
-        this->comp.add_known_global (var_name, this->next_glob - 1);
+        this->globs[g.first] = g.second;
+        //this->comp.add_known_global (g.first, g.second);
       }
+    
+    for (auto proto : ent.van->get_top_level_fun_protos ())
+      //this->comp.add_known_fun_proto (proto);
+      this->protos.insert (proto);
   }
   
   

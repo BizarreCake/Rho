@@ -82,6 +82,7 @@ namespace rho {
       case TOK_OR:              return "|";
       case TOK_NOT:             return "!";
       case TOK_COL:             return ":";
+      case TOK_DEF:             return ":=";
       
       case TOK_INTEGER:         return "<integer>";
       case TOK_IDENT:           return "<ident>";

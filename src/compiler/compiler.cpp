@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <gmp.h>
 #include <sstream>
+#include <algorithm>
 
 #include <iostream> // DEBUG
 
@@ -91,6 +92,13 @@ namespace rho {
   compiler::add_known_atom (const std::string& name)
   {
     this->known_atoms.insert (name);
+  }
+  
+  
+  void
+  compiler::add_known_fun_proto (std::shared_ptr<fun_prototype> proto)
+  {
+    this->known_protos.insert (proto);
   }
   
   
@@ -175,14 +183,19 @@ namespace rho {
                      const std::string& mident)
   {
     this->name_imps.clear ();
+    this->proto_imps.clear ();
     this->cgen.clear ();
     this->mod = std::shared_ptr<module> (new module ());
     this->curr_ns = "";
     this->mident = mident;
     this->atoms.clear ();
+    this->van.reset ();
     
     this->compile_program (program);
     this->cgen.fix_labels ();
+    
+    this->known_globs.clear ();
+    this->known_protos.clear ();
     
     auto m = this->mod;
     m->set_code (this->cgen.data (), this->cgen.size ());
@@ -206,16 +219,22 @@ namespace rho {
     this->prg_ast = program;
     this->mod->set_name (this->mident);
     
+    this->process_imports ();
+    
     auto& ent = this->mstore.retrieve (this->mident);
-    if (ent.van)
+    if (ent.van && ent.van->get_analysis_level () == ANL_FULL)
       this->van = ent.van;
-    else
+    if (!this->van)
       {
         var_analyzer va;
         for (auto p : this->known_globs)
           va.add_known_global (p.first, p.second);
+        for (auto p : this->proto_imps)
+          va.add_imported_fun_proto (p.second);
+        for (auto proto : this->known_protos)
+          va.add_imported_fun_proto (proto);
         this->van = ent.van = std::shared_ptr<var_analysis> (
-          new var_analysis (va.analyze (program)));
+          new var_analysis (va.analyze_full (program)));
       }
     
     int lbl_cl = this->cgen.make_label ();
@@ -230,8 +249,7 @@ namespace rho {
     this->cgen.mark_label (lbl_cl);
     
     // allocate room for local variables
-    auto fun_f = this->van->get_scope (program)->get_fun ();
-    this->cgen.emit_push_nils (fun_f->get_local_count ());
+    this->cgen.emit_push_nils (128);
     
     // make room for global variables
     if (this->alloc_globs)
@@ -326,7 +344,7 @@ namespace rho {
       }
   }
   
-  
+
   
   void
   compiler::compile_module (std::shared_ptr<ast_module> stmt)
@@ -337,7 +355,15 @@ namespace rho {
   
   
   void
-  compiler::compile_import (std::shared_ptr<ast_import> stmt)
+  compiler::process_imports ()
+  {
+    for (auto s : this->prg_ast->get_stmts ())
+      if (s->get_type () == AST_IMPORT)
+        this->process_import (std::static_pointer_cast<ast_import> (s));
+  }
+  
+  void
+  compiler::process_import (std::shared_ptr<ast_import> stmt)
   {
     auto mname = stmt->get_name ();
     auto mident = get_module_identifier (
@@ -351,7 +377,7 @@ namespace rho {
       {
         var_analyzer va;
         ent.van = std::shared_ptr<var_analysis> (
-          new var_analysis (va.analyze (ent.ast)));
+          new var_analysis (va.analyze_toplevel (ent.ast)));
       }
     
     auto scope = ent.van->get_scope (ent.ast);
@@ -359,19 +385,44 @@ namespace rho {
     for (auto& exp : exps)
       {
         auto var = scope->get_var (exp);
-        if (var.type != VAR_GLOBAL)
+        if (var.type == VAR_GLOBAL)
+          this->name_imps[exp] = { .mident = mident, .idx = var.idx };
+        else
           {
-            this->errs.report (ERR_FATAL,
-              "module '" + mname + "' exports undefined function: " + exp,
-              stmt->get_location());
-            return;
+            // might be a named function
+            bool found = false;
+            for (auto proto : ent.van->get_top_level_fun_protos ())
+              if (proto->name == exp)
+                {
+                  var = scope->get_var (proto->mname);
+                  if (var.type == VAR_GLOBAL)
+                    {
+                      this->name_imps[proto->mname] = { .mident = mident, .idx = var.idx };
+                      this->proto_imps[proto->mname ] = proto;
+                      
+                      found = true;
+                    }
+                }
+            
+            if (!found)
+              {
+                this->errs.report (ERR_FATAL,
+                  "module '" + mname + "' exports undefined function: " + exp,
+                  stmt->get_location());
+                return;
+              }
           }
-        this->name_imps[exp] = { .mident = mident, .idx = var.idx };
       }
     
     auto atoms = ast_tools::extract_atom_defs (ent.ast);
     for (auto& atom : atoms)
       this->atoms.insert (atom);
+  }
+  
+  void
+  compiler::compile_import (std::shared_ptr<ast_import> stmt)
+  {
+    // do nothing
   }
   
   
@@ -387,13 +438,17 @@ namespace rho {
   void
   compiler::compile_ret (std::shared_ptr<ast_ret> stmt)
   {
-    this->push_expr_frame (true);
+    bool close_needed = false;
+    auto fun_f = this->van->get_scope (stmt)->get_fun ();
+    if (!fun_f->get_cfrees ().empty ())
+      close_needed = true;
+    
+    this->push_expr_frame (!close_needed);
     this->compile_expr (stmt->get_expr ());
     this->pop_expr_frame ();
     
-    auto fun_f = this->van->get_scope (stmt)->get_fun ();
-    if (!fun_f->get_cfrees ().empty ())
-        this->cgen.emit_close (fun_f->get_local_count ());
+    if (close_needed)
+      this->cgen.emit_close (fun_f->get_local_count ());
     
     this->cgen.emit_ret ();
   }
@@ -451,6 +506,130 @@ namespace rho {
   
   
   void
+  compiler::compile_fun_def (std::shared_ptr<ast_fun_def> stmt)
+  {
+    int lbl_fn = this->cgen.make_label ();
+    int lbl_cfn = this->cgen.make_label ();
+    this->cgen.emit_jmp (lbl_cfn);
+    
+    auto fun_s = this->van->get_scope (stmt->get_body ());
+    auto fun_f = fun_s->get_fun ();
+    
+    {
+      // function body
+      
+      this->cgen.mark_label (lbl_fn);
+      
+      // allocate room for local variables
+      this->cgen.emit_push_nils (fun_f->get_local_count ());
+      
+      // handle argument packs
+      auto& params = stmt->get_params ();
+      for (size_t i = 0; i < params.size (); ++i)
+        {
+          auto& param = params[i];
+          if (param[0] == '*')
+            {
+              if (i != params.size () - 1)
+                {
+                  this->errs.report (ERR_ERROR,
+                    "argument pack can only exist at the end of a function's parameter list",
+                    stmt->get_location ());
+                  return;
+                }
+              
+              this->cgen.emit_pack_args (i);
+            }
+        }
+      
+      auto& stmts = stmt->get_body ()->get_stmts ();
+      if (stmts.empty ())
+        this->cgen.emit_push_nil ();
+      else
+        {
+          this->push_expr_frame (false);
+          for (size_t i = 0; i < stmts.size () - 1; ++i)
+            this->compile_stmt (stmts[i]);
+          this->pop_expr_frame ();
+            
+          // handle last statement
+          this->push_expr_frame (true);
+          auto last = stmts.back ();
+          if (last->get_type () == AST_EXPR_STMT)
+            this->compile_expr (std::static_pointer_cast<ast_expr_stmt> (last)->get_expr ());
+          else
+            {
+              this->compile_stmt (last);
+              this->cgen.emit_push_nil ();
+            }
+          
+          if (!fun_f->get_cfrees ().empty ())
+            this->cgen.emit_close (fun_f->get_local_count ());
+          
+          this->cgen.emit_ret ();
+          this->pop_expr_frame ();
+        }
+    }
+    
+    this->cgen.mark_label (lbl_cfn);
+    
+    int non_upval_count = 0;
+    auto nfrees = fun_f->get_sorted_nfrees ();
+    auto scope = this->van->get_scope (stmt);
+    for (auto p : nfrees)
+      {
+        auto var = scope->get_var (p.first);
+        if (var.type == VAR_LOCAL || var.type == VAR_ARG || var.type == VAR_ARG_PACK)
+          ++ non_upval_count;
+      }
+    
+    this->cgen.emit_mk_closure (non_upval_count, lbl_fn);
+    for (auto p : nfrees)
+      {
+        auto var = scope->get_var (p.first);
+        switch (var.type)
+          {
+          case VAR_LOCAL:
+            this->cgen.emit_get_local (var.idx);
+            break;
+          
+          case VAR_ARG:
+            this->cgen.emit_get_arg (var.idx);
+            break;
+          
+          case VAR_ARG_PACK:
+            this->cgen.emit_get_arg_pack ();
+            break;
+          
+          case VAR_UPVAL:
+            break;
+          
+          default:
+            throw std::runtime_error ("compile_fun_def(): shouldn't happen");
+          }
+      }
+    
+    auto proto = this->van->get_fun_proto (stmt);
+    auto var = scope->get_var (proto->mname);
+    switch (var.type)
+      {
+      case VAR_GLOBAL:
+        this->cgen.rel_set_type (REL_GP);
+        this->cgen.emit_set_global (0, var.idx);
+        break;
+      
+      case VAR_LOCAL:
+        this->cgen.emit_set_local (var.idx);
+        break;
+      
+      default:
+        throw std::runtime_error ("compile_fun_def(): shouldn't happen");
+      }
+  };
+  
+  
+  
+  void
   compiler::compile_stmt (std::shared_ptr<ast_stmt> stmt)
   {
     switch (stmt->get_type ())
@@ -497,6 +676,10 @@ namespace rho {
       
       case AST_USING:
         this->compile_using (std::static_pointer_cast<ast_using> (stmt));
+        break;
+      
+      case AST_FUN_DEF:
+        this->compile_fun_def (std::static_pointer_cast<ast_fun_def> (stmt));
         break;
       
       default:
@@ -583,6 +766,10 @@ namespace rho {
         //std::cout << "-- ident[" << qn << "]: global(" << var.idx << ")" << std::endl;
         this->cgen.rel_set_type (REL_GP);
         this->cgen.emit_get_global (0, var.idx);
+        return;
+      
+      case VAR_ARG_PACK:
+        this->cgen.emit_get_arg_pack ();
         return;
       
       case VAR_UNDEF:
@@ -729,6 +916,25 @@ namespace rho {
       // allocate room for local variables
       this->cgen.emit_push_nils (fun_f->get_local_count ());
       
+      // handle argument packs
+      auto& params = expr->get_params ();
+      for (size_t i = 0; i < params.size (); ++i)
+        {
+          auto& param = params[i];
+          if (param[0] == '*')
+            {
+              if (i != params.size () - 1)
+                {
+                  this->errs.report (ERR_ERROR,
+                    "argument pack can only exist at the end of a function's parameter list",
+                    expr->get_location ());
+                  return;
+                }
+              
+              this->cgen.emit_pack_args (i);
+            }
+        }
+      
       auto& stmts = expr->get_body ()->get_stmts ();
       if (stmts.empty ())
         this->cgen.emit_push_nil ();
@@ -766,7 +972,7 @@ namespace rho {
     for (auto p : nfrees)
       {
         auto var = scope->get_var (p.first);
-        if (var.type == VAR_LOCAL || var.type == VAR_ARG)
+        if (var.type == VAR_LOCAL || var.type == VAR_ARG || var.type == VAR_ARG_PACK)
           ++ non_upval_count;
       }
     
@@ -784,6 +990,10 @@ namespace rho {
             this->cgen.emit_get_arg (var.idx);
             break;
           
+          case VAR_ARG_PACK:
+            this->cgen.emit_get_arg_pack ();
+            break;
+          
           case VAR_UPVAL:
             break;
           
@@ -793,25 +1003,197 @@ namespace rho {
       }
   }
   
+  
+  bool
+  compiler::try_compile_named_fun_call (std::shared_ptr<ast_fun_call> expr)
+  {
+    auto& name = std::static_pointer_cast<ast_ident> (expr->get_fun ())->get_value ();
+    auto scope = this->van->get_scope (expr);
+    
+    bool can_tail_call = this->can_perform_tail_call ();
+    if (can_tail_call)
+      {
+        auto fun_f = this->van->get_scope (expr)->get_fun ();
+        if (fun_f->get_arg_count () != (int)expr->get_args ().size ())
+          can_tail_call = false;
+      }
+    
+    std::vector<std::shared_ptr<fun_prototype>> mprotos;
+    for (auto& p : scope->get_fun_protos ())
+      {
+        if (p.second->name == name
+          && p.second->params.size () == expr->get_args ().size ())
+          mprotos.push_back (p.second);
+      }
+    
+    if (mprotos.empty ())
+      return false;
+
+    auto gscopes = this->van->get_guard_scopes (
+      std::static_pointer_cast<ast_ident> (expr->get_fun ()));
+
+    // sort by sequence number
+    std::sort (mprotos.begin (), mprotos.end (),
+      [] (std::shared_ptr<fun_prototype> a, std::shared_ptr<fun_prototype> b) {
+        return a->seq_n < b->seq_n;
+      });
+    
+    // load parameters local variables
+    bool loaded_args = false;
+    int arg_start = 0;
+    for (auto proto : mprotos)
+      if (proto->guard)
+        {
+          auto& inf = (*gscopes)[proto->mname];
+          
+          auto& args = expr->get_args ();
+          int argi = 0;
+          for (auto itr = args.rbegin (); itr != args.rend (); ++itr)
+            {
+              this->compile_expr (*itr);
+              
+              auto var = inf.scope->get_var (
+                proto->params[proto->params.size () - (argi++) - 1]);
+              if (var.type != VAR_LOCAL)
+                throw std::runtime_error (
+                  "compiler::try_compile_named_fun_call(): shouldn't happen");
+              
+              this->cgen.emit_set_local (var.idx);
+              if (argi == 1)
+                arg_start = var.idx;
+            }
+          
+          loaded_args = true;
+          break;
+        }
+    
+    int lbl_end = this->cgen.make_label ();
+    int lbl_prev = -1, lbl_next;
+    for (auto proto : mprotos)
+      {
+        if (lbl_prev != -1)
+          this->cgen.mark_label (lbl_prev);
+        lbl_next = this->cgen.make_label ();
+        
+        if (proto->guard)
+          {
+            auto& inf = (*gscopes)[proto->mname];
+            this->compile_expr (inf.guard);
+            this->cgen.emit_jf (lbl_next);
+          }
+        
+        // guard returned true at this point
+        {
+          // push arguments
+          if (loaded_args)
+            {
+              for (int i = 0; i < (int)expr->get_args ().size (); ++i)
+                this->cgen.emit_get_local (arg_start - i);
+            }
+          else
+            {
+              auto& args = expr->get_args ();
+              for (auto itr = args.rbegin (); itr != args.rend (); ++itr)
+                this->compile_expr (*itr);
+            }
+          
+          // load function
+          auto var = scope->get_var (proto->mname);
+          switch (var.type)
+            {
+            case VAR_GLOBAL:
+              this->cgen.rel_set_type (REL_GP);
+              this->cgen.emit_get_global (0, var.idx);
+              break;
+            
+            case VAR_LOCAL:
+              this->cgen.emit_get_local (var.idx);
+              break;
+            
+            default:
+              {
+                // might be an imported function
+                auto itr = this->name_imps.find (proto->mname);
+                if (itr != this->name_imps.end ())
+                  {
+                    name_import_t& inf = itr->second;
+                    this->cgen.rel_set_type (REL_GV);
+                    this->cgen.rel_set_mname (inf.mident);
+                    this->cgen.emit_get_global (0, inf.idx);
+                    break; 
+                  }
+                
+                // or a known global
+                {
+                  auto itr = this->known_globs.find (proto->mname);
+                  if (itr != this->known_globs.end ())
+                    {
+                      this->cgen.emit_get_global (0, itr->second, false);
+                      break;
+                    }
+                }
+                
+                throw std::runtime_error (
+                  "compiler::try_compile_named_fun_call(): shouldn't happen");
+              }
+            }
+          
+          if (can_tail_call)
+            {
+              auto fun_f = this->van->get_scope (expr)->get_fun ();
+              if (!fun_f->get_cfrees ().empty ())
+                this->cgen.emit_close (fun_f->get_local_count ());
+              this->cgen.emit_tail_call ();
+            }
+          else
+            this->cgen.emit_call (expr->get_args ().size ());
+        }
+        this->cgen.emit_jmp (lbl_end);
+        
+        lbl_prev = lbl_next;
+      }
+    
+    if (lbl_prev != -1)
+      this->cgen.mark_label (lbl_prev);
+    
+    // TODO: throw VM error
+    this->cgen.emit_push_nil ();
+    
+    this->cgen.mark_label (lbl_end);
+    
+    return true;
+  }
+  
   void
   compiler::compile_fun_call (std::shared_ptr<ast_fun_call> expr)
   {
     // check for possibility for tail calls and builtins
-    bool tail = false;
+    bool tail = this->can_perform_tail_call ();
     if (expr->get_fun ()->get_type () == AST_IDENT)
       {
         auto& name = std::static_pointer_cast<ast_ident> (expr->get_fun ())->get_value ();
-        if (this->can_perform_tail_call () && name == "$")
-          tail = true;
-        
-        auto qn = this->qualify_name (name, this->van->get_scope (expr));
-        auto scope = this->van->get_scope (expr);
-        auto var = scope->get_var (qn);
-        if (var.type == VAR_UNDEF && this->name_imps.find (qn) == this->name_imps.end ())
+        if (name == "$")
+          ;
+        else if (this->try_compile_named_fun_call (expr))
+          return;
+        else
           {
-            if (this->compile_builtin (expr))
-              return;
+            auto qn = this->qualify_name (name, this->van->get_scope (expr));
+            auto scope = this->van->get_scope (expr);
+            auto var = scope->get_var (qn);
+            if (var.type == VAR_UNDEF && this->name_imps.find (qn) == this->name_imps.end ())
+              {
+                if (this->compile_builtin (expr))
+                  return;
+              }
           }
+      }
+    
+    if (tail)
+      {
+        auto fun_f = this->van->get_scope (expr)->get_fun ();
+        if (fun_f->get_arg_count () != (int)expr->get_args ().size ())
+          tail = false;
       }
     
     // push arguments (in reverse order)
@@ -820,11 +1202,15 @@ namespace rho {
       this->compile_expr (*itr);
     
     // push function
-    if (!tail)
-      this->compile_expr (expr->get_fun ());
+    this->compile_expr (expr->get_fun ());
     
     if (tail)
-      this->cgen.emit_tail_call ();
+      {
+        auto fun_f = this->van->get_scope (expr)->get_fun ();
+        if (!fun_f->get_cfrees ().empty ())
+          this->cgen.emit_close (fun_f->get_local_count ());
+        this->cgen.emit_tail_call ();
+      }
     else
       this->cgen.emit_call (args.size ());
   }
@@ -934,6 +1320,8 @@ namespace rho {
         
         // match succeeded at this point
         {
+          this->cgen.emit_pop ();
+          
           ++ this->match_depth;
           this->compile_expr (c.body);
           -- this->match_depth;
@@ -1019,6 +1407,11 @@ namespace rho {
       case VAR_GLOBAL:
         this->cgen.rel_set_type (REL_GP);
         this->cgen.emit_set_global (0, var.idx);
+        return;
+      
+      case VAR_ARG_PACK:
+        this->errs.report (ERR_ERROR, "cannot assign into argument pack",
+          lhs->get_location ());
         return;
       
       case VAR_UNDEF:
@@ -1110,7 +1503,9 @@ namespace rho {
   {
     for (auto& p : expr->get_defs ())
       {
+        this->push_expr_frame (false);
         this->compile_expr (p.second);
+        this->pop_expr_frame ();
         
         auto scope = this->van->get_scope (p.second);
         auto var = scope->get_var (p.first);

@@ -17,7 +17,9 @@
  */
 
 #include "parse/parser.hpp"
+#include "util/ast_tools.hpp"
 #include <unordered_map>
+#include <sstream>
 
 #include <iostream> // DEBUG
 
@@ -203,10 +205,16 @@ namespace rho {
     strm.next ();
     
     // params
-    std::vector<std::shared_ptr<ast_ident>> params;
+    std::vector<std::string> params;
     while ((tok = strm.peek_next ()).type != TOK_EOF && tok.type != TOK_RPAREN)
       {
-        params.push_back (this->parse_ident (strm));
+        if (tok.type == TOK_MUL)
+          {
+            strm.next ();
+            params.push_back ("*" + this->parse_ident (strm)->get_value ());
+          }
+        else
+          params.push_back (this->parse_ident (strm)->get_value ());
         
         tok = strm.peek_next ();
         if (tok.type == TOK_COMMA)
@@ -627,6 +635,7 @@ namespace rho {
   
   static std::unordered_map<int, binop_info> _binop_map {
     { TOK_ASSIGN, { AST_BINOP_ASSIGN, 0, ASSOC_RIGHT } },
+    { TOK_DEF,    { AST_BINOP_DEF, 0, ASSOC_RIGHT } },
     { TOK_AND,    { AST_BINOP_AND, 1, ASSOC_LEFT } },
     { TOK_OR,     { AST_BINOP_OR, 1, ASSOC_LEFT } },
     { TOK_EQ,     { AST_BINOP_EQ, 2, ASSOC_LEFT } },
@@ -717,6 +726,8 @@ namespace rho {
     return ast;
   }
   
+  
+  
   std::shared_ptr<ast_var_def>
   parser::parse_var_def (lexer::token_stream& strm, bool in_block)
   {
@@ -746,6 +757,8 @@ namespace rho {
     return ast;
   }
   
+  
+  
   std::shared_ptr<ast_stmt_block>
   parser::parse_stmt_block (lexer::token_stream& strm)
   {
@@ -766,6 +779,8 @@ namespace rho {
     
     return blk;
   }
+  
+  
   
   std::shared_ptr<ast_expr_block>
   parser::parse_expr_block (lexer::token_stream& strm)
@@ -788,6 +803,8 @@ namespace rho {
     return blk;
   }
   
+  
+  
   std::shared_ptr<ast_stmt>
   parser::parse_module (lexer::token_stream& strm)
   {
@@ -806,6 +823,8 @@ namespace rho {
     return ast;
   }
   
+  
+  
   std::shared_ptr<ast_stmt>
   parser::parse_import (lexer::token_stream& strm)
   {
@@ -823,6 +842,8 @@ namespace rho {
     _set_ast_location (ast.get (), ftok, this->path);
     return ast;
   }
+  
+  
   
   std::shared_ptr<ast_stmt>
   parser::parse_export (lexer::token_stream& strm)
@@ -857,6 +878,8 @@ namespace rho {
     return ast;
   }
   
+  
+  
   std::shared_ptr<ast_stmt>
   parser::parse_ret (lexer::token_stream& strm, bool in_block)
   {
@@ -881,6 +904,8 @@ namespace rho {
       }
   }
   
+  
+  
   std::shared_ptr<ast_stmt>
   parser::parse_namespace (lexer::token_stream& strm)
   {
@@ -899,6 +924,8 @@ namespace rho {
     return ast;
   }
   
+  
+  
   std::shared_ptr<ast_atom_def>
   parser::parse_atom_def (lexer::token_stream& strm, bool in_block)
   {
@@ -916,6 +943,8 @@ namespace rho {
     _set_ast_location (ast.get (), ftok, this->path);
     return ast;
   }
+  
+  
   
   std::shared_ptr<ast_using>
   parser::parse_using (lexer::token_stream& strm, bool in_block)
@@ -943,6 +972,235 @@ namespace rho {
     _set_ast_location (ast.get (), ftok, this->path);
     return ast;
   }
+  
+  
+  
+  std::shared_ptr<ast_fun_def>
+  parser::parse_fun_def (lexer::token_stream& strm)
+  {
+    auto ftok = strm.peek_next ();
+    this->expect (TOK_FUN, strm);
+    
+    auto tok = strm.peek_next ();
+    if (tok.type != TOK_IDENT)
+      {
+        strm.prev ();
+        return {};
+      }
+    
+    strm.next ();
+    std::string name = tok.val.str;
+    
+    // (
+    tok = strm.peek_next ();
+    if (tok.type != TOK_LPAREN)
+      throw parse_error (
+        "expected '(' at beginning of function parameter list",
+        tok.ln, tok.col);
+    strm.next ();
+    
+    // params
+    std::vector<std::string> params;
+    while ((tok = strm.peek_next ()).type != TOK_EOF && tok.type != TOK_RPAREN)
+      {
+        if (tok.type == TOK_MUL)
+          {
+            strm.next ();
+            params.push_back ("*" + this->parse_ident (strm)->get_value ());
+          }
+        else
+          params.push_back (this->parse_ident (strm)->get_value ());
+        
+        tok = strm.peek_next ();
+        if (tok.type == TOK_COMMA)
+          strm.next ();
+        else if (tok.type != TOK_RPAREN)
+          throw parse_error ("expected ',' or ')' in function parameter list",
+            tok.ln, tok.col);
+      }
+    if (tok.type == TOK_RPAREN)
+      strm.next ();
+    else if (tok.type == TOK_EOF)
+      throw parse_error ("unexpected EOF in function parameter list", tok.ln, tok.col);
+    
+    // guard
+    std::shared_ptr<ast_expr> guard;
+    tok = strm.peek_next ();
+    if (tok.type == TOK_OR)
+      {
+        strm.next ();
+        guard = this->parse_expr (strm);
+      }
+    
+    // body
+    auto body = this->parse_stmt_block (strm);
+    
+    std::shared_ptr<ast_fun_def> ast { new ast_fun_def (name) };
+    _set_ast_location (ast.get (), ftok, this->path);
+    ast->set_body (body);
+    ast->set_guard (guard);
+    for (auto p : params)
+      ast->add_param (p);
+    return ast;
+  }
+  
+  
+  
+  static std::shared_ptr<ast_expr>
+  _escape_pattern (std::shared_ptr<ast_expr> pat)
+  {
+    auto npat = std::static_pointer_cast<ast_expr> (pat->clone ());
+    
+    ast_tools::traverse_dfs (npat,
+      [] (std::shared_ptr<ast_node> node) -> traverse_result {
+        if (node->get_type () == AST_IDENT)
+          {
+            auto cn = std::static_pointer_cast<ast_ident> (node);
+            cn->set_value ("___" + cn->get_value ());
+          }
+      
+        return TR_CONTINUE;
+      });
+    
+    return npat;
+  }
+  
+  std::shared_ptr<ast_stmt>
+  parser::convert_def (std::shared_ptr<ast_binop> bop)
+  {
+    if (bop->get_lhs ()->get_type () == AST_IDENT)
+      {
+        // <ident> := <val>
+        //   -- turns into --
+        // var <ident> = <val>;
+        
+        auto ast = std::shared_ptr<ast_var_def> (
+          new ast_var_def (
+            std::static_pointer_cast<ast_ident> (bop->get_lhs ()),
+            bop->get_rhs ()));
+        ast->set_location (bop->get_location ());
+        return ast;
+      }
+    else if (bop->get_lhs ()->get_type () == AST_FUN_CALL)
+      {
+        auto fc = std::static_pointer_cast<ast_fun_call> (bop->get_lhs ());
+        if (fc->get_fun ()->get_type () == AST_IDENT)
+          {
+            // <ident>(<a1>, ..., <aN>) := <expr>
+            //   -- turns into --
+            // fun <ident>(<p1>, ..., <pN>) | match <p1> { case <a1>: true; }
+            //                             && match <pN> { case <aN>: true; }
+            //                              { expr }
+            
+            std::shared_ptr<ast_fun_def> ast { new ast_fun_def (
+              std::static_pointer_cast<ast_ident> (fc->get_fun ())->get_value ()) };
+            ast->set_location (bop->get_location ());
+            
+            int mi = 0;
+            std::vector<std::shared_ptr<ast_expr>> conds;
+            std::unordered_map<std::string, std::shared_ptr<ast_expr>> pats;
+            for (auto arg : fc->get_args ())
+              {
+                if (arg->get_type () == AST_IDENT)
+                  ast->add_param (std::static_pointer_cast<ast_ident> (arg)->get_value ());
+                else
+                  {
+                    std::ostringstream ss;
+                    ss << "____param" << (++mi);
+                    std::string arg_name = ss.str ();
+                    ast->add_param (arg_name);
+                    
+                    // create match statement
+                    int name_count = ast_tools::extract_idents (arg).size ();
+                    if (name_count == 0)
+                      {
+                        // if there are no variables involved, just check for
+                        // equality.
+                        
+                        conds.push_back (std::shared_ptr<ast_expr> (
+                          new ast_binop (AST_BINOP_EQ,
+                            std::shared_ptr<ast_ident> (new ast_ident (arg_name)),
+                            arg)));
+                      }
+                    else
+                      {
+                        // create match expression
+                        
+                        auto match = std::shared_ptr<ast_match> (
+                          new ast_match (std::shared_ptr<ast_ident> (
+                            new ast_ident (arg_name))));
+                        match->add_case (arg,
+                          std::shared_ptr<ast_bool> (new ast_bool (true)));
+                        conds.push_back (match);
+                        
+                        pats[arg_name] = _escape_pattern (arg);
+                      }
+                  }
+              }
+            
+            // create guard expression
+            if (!conds.empty ())
+              {
+                if (conds.size () == 1)
+                  ast->set_guard (conds.front ());
+                else
+                  {
+                    auto guard = std::static_pointer_cast<ast_expr> (conds[0]);
+                    for (size_t i = 1; i < conds.size (); ++i)
+                      {
+                        // 
+                        // TODO: Replace current And operator with a true
+                        // short-circuiting And!!!!!!!!
+                        //
+                        
+                        guard = std::shared_ptr<ast_expr> (new ast_binop (
+                          AST_BINOP_AND, guard, conds[i]));
+                      }
+                    
+                    ast->set_guard (guard);
+                  }
+              }
+            
+            // set body
+            auto body = std::shared_ptr<ast_stmt_block> (new ast_stmt_block ());
+            
+            for (auto p : pats)
+              {
+                auto& arg_name = p.first;
+                auto pat = p.second;
+              
+                auto names = ast_tools::extract_idents (pat);
+                for (auto& n : names)
+                  body->push_back (std::shared_ptr<ast_var_def> (new ast_var_def (
+                    std::shared_ptr<ast_ident> (new ast_ident (n.substr (3))),
+                    std::shared_ptr<ast_nil> (new ast_nil ()))));
+                
+                auto case_body = std::shared_ptr<ast_expr_block> (new ast_expr_block ());
+                for (auto& n : names)
+                  case_body->push_back (std::shared_ptr<ast_expr_stmt> (
+                    new ast_expr_stmt (std::shared_ptr<ast_binop> (new ast_binop (
+                      AST_BINOP_ASSIGN,
+                      std::shared_ptr<ast_ident> (new ast_ident (n.substr (3))),
+                      std::shared_ptr<ast_ident> (new ast_ident (n)))))));
+                
+                auto match = std::shared_ptr<ast_match> (new ast_match (
+                  std::shared_ptr<ast_ident> (new ast_ident (arg_name))));
+                match->add_case (pat, case_body);
+                body->push_back (std::shared_ptr<ast_expr_stmt> (new ast_expr_stmt (match)));
+              }
+            
+            body->push_back (std::shared_ptr<ast_expr_stmt> (
+              new ast_expr_stmt (bop->get_rhs ())));
+            ast->set_body (body);
+            
+            return ast;
+          }
+      }
+    
+    return std::shared_ptr<ast_stmt> ();
+  }
+  
+  
   
   std::shared_ptr<ast_stmt>
   parser::parse_stmt (lexer::token_stream& strm, bool in_block)
@@ -981,8 +1239,32 @@ namespace rho {
       case TOK_USING:
         return this->parse_using (strm, in_block);
       
+      case TOK_FUN:
+        {
+          auto ast = this->parse_fun_def (strm);
+          if (ast)
+            return ast;
+          
+          // might be an anonymous function.
+          return this->parse_expr_stmt (strm, in_block);
+        }
+      
       default:
-        return this->parse_expr_stmt (strm, in_block);
+        {
+          auto es = this->parse_expr_stmt (strm, in_block);
+          if (es->get_expr ()->get_type () == AST_BINOP)
+            {
+              auto bop = std::static_pointer_cast<ast_binop> (es->get_expr ());
+              if (bop->get_op () == AST_BINOP_DEF)
+                {
+                  auto res = this->convert_def (bop);
+                  if (res)
+                    return res;
+                }
+            }
+          
+          return es;
+        }
       }
   }
 }

@@ -20,6 +20,7 @@
 #define _RHO__COMPILER__SCOPE__H_
 
 #include "parse/ast.hpp"
+#include "compiler/fun.hpp"
 #include <unordered_map>
 #include <unordered_set>
 #include <stack>
@@ -35,6 +36,7 @@ namespace rho {
     VAR_ARG,
     VAR_GLOBAL,
     VAR_UPVAL,
+    VAR_ARG_PACK,
   };
   
   struct variable
@@ -54,6 +56,7 @@ namespace rho {
   class func_frame
   {
     int locc;
+    int argc;
     
     std::vector<int> blk_sizes;
     std::stack<std::shared_ptr<scope_frame>> scopes;
@@ -71,6 +74,7 @@ namespace rho {
     
   public:
     inline int get_local_count () const { return this->locc; }
+    inline int get_arg_count () const { return this->argc; }
     inline int get_scope_depth () const { return this->blk_depth; }
     
     inline const std::vector<int>& get_block_sizes () const { return this->blk_sizes; }
@@ -95,6 +99,7 @@ namespace rho {
     void pop_scope ();
     std::shared_ptr<scope_frame> top_scope ();
     
+    void add_arg ();
     void add_local ();
     int add_nfree (const std::string& name);
     void add_cfree (const std::string& name);
@@ -117,6 +122,8 @@ namespace rho {
     std::unordered_map<std::string, int> locs;
     std::unordered_map<std::string, int> args;
     std::unordered_map<std::string, int> globs;
+    std::string arg_pack_name;
+    std::unordered_map<std::string, std::shared_ptr<fun_prototype>> protos;
     std::shared_ptr<scope_frame> parent;
     
     std::unordered_map<std::string, std::string> u_aliases;
@@ -128,6 +135,8 @@ namespace rho {
     std::shared_ptr<func_frame> fun;
     int scope_depth;
     
+    std::unordered_set<std::string> proto_imps;
+    
   public:
     inline std::shared_ptr<scope_frame> get_parent () { return this->parent; }
     
@@ -138,6 +147,14 @@ namespace rho {
     inline const std::vector<std::string>&
     get_used_namespaces () const
       { return this->u_ns; }
+    
+    inline std::unordered_map<std::string, std::shared_ptr<fun_prototype>>&
+    get_fun_protos ()
+      { return this->protos; }
+    
+    inline std::unordered_map<std::string, int>&
+    get_globals ()
+      { return this->globs; }
     
     inline int get_local_count () const { return this->locs.size (); }
     inline int get_arg_count () const { return this->args.size (); }
@@ -158,7 +175,13 @@ namespace rho {
     int add_local (const std::string& name);
     int add_arg (const std::string& name);
     int add_global (const std::string& name);
+    void add_arg_pack (const std::string& name);
+    void add_fun_proto (const std::string& name,
+                        std::shared_ptr<fun_prototype> proto); 
     variable get_var (const std::string& name);
+    
+    void add_imported_fun_proto (std::shared_ptr<fun_prototype> proto);
+    
     
     void add_ualias (const std::string& ns);
     void add_ualias (const std::string& ns, const std::string& alias);
@@ -172,30 +195,79 @@ namespace rho {
   
   
   
+  enum analysis_level
+  {
+    ANL_FULL,     // the entire AST has been fully analyzed.
+    ANL_TOPLEVEL, // only top-level analysis has been done.
+  };
+  
   /* 
    * Stores the results obtained from an analysis done by the variable analyzer.
    */
   class var_analysis
   {
+  public:
+    struct guard_scope_info
+    {
+      std::shared_ptr<ast_expr> guard;
+      std::shared_ptr<scope_frame> scope;
+    };
+  
+  private:
     std::unordered_map<std::shared_ptr<ast_node>, std::shared_ptr<scope_frame>>
       scope_map;
+    
+    std::unordered_map<std::shared_ptr<ast_node>, std::shared_ptr<fun_prototype>>
+      proto_map;
+  
+    std::unordered_map<std::shared_ptr<ast_ident>,
+      std::unordered_map<std::string, guard_scope_info>>
+      guard_scopes;
+    
+    std::vector<std::shared_ptr<fun_prototype>> top_protos;
+    
+    analysis_level level;
+  
+  public:
+    inline analysis_level get_analysis_level () const { return this->level; }
+    
+    inline std::vector<std::shared_ptr<fun_prototype>>&
+    get_top_level_fun_protos ()
+      { return this->top_protos; }
   
   public:
     var_analysis ();
+    var_analysis (analysis_level level);
     var_analysis (const var_analysis& other);
     var_analysis (var_analysis&& other);
     
   public:
     /* 
-     * Annonates the specified AST node with results obtained from the analyzer.
+     * Annonates the specified AST node with its associated scope frame.
      */
-    void tag (std::shared_ptr<ast_node> node, std::shared_ptr<scope_frame> scope);
+    void tag_scope (std::shared_ptr<ast_node> node,
+                    std::shared_ptr<scope_frame> scope);
+    
+    void tag_fun_proto (std::shared_ptr<ast_node> node,
+                        std::shared_ptr<fun_prototype> proto);
+    
+    void tag_guard_scope (std::shared_ptr<ast_ident> node,
+                          const std::string& fun_mname,
+                          std::shared_ptr<ast_expr> guard,
+                          std::shared_ptr<scope_frame> scope);
+    
+    void add_top_level_fun_proto (std::shared_ptr<fun_prototype> proto);
     
     
     /* 
      * Returns the scope associated with the specified node.
      */
     std::shared_ptr<scope_frame> get_scope (std::shared_ptr<ast_node> node);
+    
+    std::shared_ptr<fun_prototype> get_fun_proto (std::shared_ptr<ast_node> node);
+    
+    std::unordered_map<std::string, guard_scope_info>*
+    get_guard_scopes (std::shared_ptr<ast_ident> node);
   };
   
   
@@ -218,6 +290,7 @@ namespace rho {
     std::stack<std::shared_ptr<scope_frame>> scopes;
     std::stack<std::shared_ptr<func_frame>> funs;
     
+    std::vector<std::shared_ptr<fun_prototype>> proto_imps;
     std::unordered_map<std::string, int> kglobs;
     int next_glob_idx;
     
@@ -230,18 +303,27 @@ namespace rho {
     
   public:
     /* 
-     * Analyses the specified AST program.
+     * Performs a full analysis on the specified AST program.
      */
-    var_analysis&& analyze (std::shared_ptr<ast_program> p);
+    var_analysis&& analyze_full (std::shared_ptr<ast_program> p);
     
+    /* 
+     * Performs a lighter, top-level analysis of the specified AST program.
+     */
+    var_analysis&& analyze_toplevel (std::shared_ptr<ast_program> p);
+    
+    
+    
+    void add_imported_fun_proto (std::shared_ptr<fun_prototype> proto);
     
     // REPL stuff:
     
     void add_known_global (const std::string& name, int idx);
     
   private:
+    void analyze_program (std::shared_ptr<ast_program> p, analysis_level level);
+    
     void analyze_node (std::shared_ptr<ast_node> node);
-    void analyze_program (std::shared_ptr<ast_program> p);
     void analyze_namespace (std::shared_ptr<ast_namespace> node);
     void analyze_var_def (std::shared_ptr<ast_var_def> node);
     void analyze_stmt_block (std::shared_ptr<ast_stmt_block> node);
@@ -262,6 +344,7 @@ namespace rho {
     void analyze_using (std::shared_ptr<ast_using> node);
     void analyze_let (std::shared_ptr<ast_let> node);
     void analyze_n (std::shared_ptr<ast_n> node);
+    void analyze_fun_def (std::shared_ptr<ast_fun_def> node);
     
   private:
     std::string qualify_name (const std::string& name,

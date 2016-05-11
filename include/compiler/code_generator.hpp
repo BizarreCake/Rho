@@ -160,6 +160,7 @@ namespace rho {
     void emit_or ();
     void emit_not ();
     
+    void emit_get_arg_pack ();
     void emit_mk_fn (int lbl);
     void emit_call (unsigned char argc);
     void emit_ret ();
@@ -174,6 +175,7 @@ namespace rho {
     void emit_get_fun ();
     void emit_close (unsigned char localc);
     void emit_call0 (unsigned char argc);
+    void emit_pack_args (unsigned char start);
     
     void emit_cmp_eq ();
     void emit_cmp_neq ();

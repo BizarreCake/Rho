@@ -247,7 +247,6 @@ namespace rho {
       case ';': this->strm->get (); tok.type = TOK_SCOL; return true;
       case ',': this->strm->get (); tok.type = TOK_COMMA; return true;
       case '.': this->strm->get (); tok.type = TOK_DOT; return true;
-      case ':': this->strm->get (); tok.type = TOK_COL; return true;
       
       case '+': this->strm->get (); tok.type = TOK_ADD; return true;
       case '-': this->strm->get (); tok.type = TOK_SUB; return true;
@@ -301,6 +300,14 @@ namespace rho {
             this->strm->unget ();
             return false;
           }
+        return true;
+      
+      case ':':
+        this->strm->get (); 
+        if (this->strm->peek () == '=')
+          { this->strm->get (); tok.type = TOK_DEF; }
+        else
+          tok.type = TOK_COL;
         return true;
       }
 

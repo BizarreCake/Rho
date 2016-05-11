@@ -58,6 +58,7 @@ namespace rho {
     TOK_OR,           // |
     TOK_NOT,          // !
     TOK_COL,          // :
+    TOK_DEF,          // :=
     
     // datums:
     TOK_INTEGER,

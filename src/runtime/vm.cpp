@@ -230,6 +230,11 @@ namespace rho {
         // functions & closures
         //----------------------------------------------------------------------
           
+          // get_arg_pack
+          case 0x20:
+            stack[sp ++] = stack[bp + 5];
+            break;
+          
           // mk_fn
           case 0x21:
             {
@@ -262,6 +267,9 @@ namespace rho {
               
               // push microframe pointer
               stack[sp ++] = MK_INTERNAL (GET_INTERNAL (stack[pbp + 4]));
+              
+              // push slot for argument pack
+              stack[sp ++] = rho_value_make_nil ();
               
               ptr = cl.val.gc->val.fn.cp;
             }
@@ -304,6 +312,11 @@ namespace rho {
                   int idx = -1;
                   switch (*ptr++)
                     {
+                    // get_arg_pack
+                    case 0x20:
+                      idx = bp + 5;
+                      break;
+                    
                     // get_arg
                     case 0x26:
                       {
@@ -316,7 +329,7 @@ namespace rho {
                     case 0x28:
                       {
                         unsigned char index = *ptr++;
-                        idx = bp + 5 + index;
+                        idx = bp + 6 + index;
                       }
                       break;
                     
@@ -383,7 +396,7 @@ namespace rho {
           case 0x28:
             {
               unsigned char index = *ptr++;
-              stack[sp ++] = stack[bp + 5 + index];
+              stack[sp ++] = stack[bp + 6 + index];
             }
             break;
           
@@ -391,7 +404,7 @@ namespace rho {
           case 0x29:
             {
               unsigned char index = *ptr++;
-              stack[bp + 5 + index] = stack[-- sp];
+              stack[bp + 6 + index] = stack[-- sp];
             }
             break;
           
@@ -410,18 +423,21 @@ namespace rho {
           // tail_call
           case 0x2B:
             {
+              auto cl = stack[-- sp];
+              stack[bp + 2] = cl;
+              
               unsigned char argc = GET_INTERNAL (stack[bp + 3]);
               for (int i = 0; i < argc; ++i)
                 stack[bp - 2 - i] = stack[sp - 1 - i];
               
-              sp = bp + 5;
-              ptr = stack[bp + 2].val.gc->val.fn.cp;
+              sp = bp + 6;
+              ptr = cl.val.gc->val.fn.cp;
             }
             break;
           
           // get_fun
           case 0x2C:
-            stack[sp++] = stack[bp - 1];
+            stack[sp++] = stack[bp + 2];
             break;
           
           // close
@@ -434,7 +450,10 @@ namespace rho {
               for (auto uv_ : upvals)
                 {
                   auto& uv = uv_->val.uv;
-                  if ((uv.sp >= bp + 5 && uv.sp < bp + 5 + local_count)
+                  
+                  // we start from bp + 5 because the argument pack
+                  // (if it exists) is stored there.
+                  if ((uv.sp >= bp + 5 && uv.sp < bp + 6 + local_count)
                     || (uv.sp > bp - 2 - argc && uv.sp <= bp - 2))
                     {
                       uv.val = stack[uv.sp];
@@ -466,7 +485,27 @@ namespace rho {
             // push microframe pointer
             stack[sp ++] = MK_INTERNAL (0);
             
+            // push slot for argument pack
+            stack[sp ++] = rho_value_make_nil ();
+            
             ptr = cl.val.gc->val.fn.cp;
+          }
+          break;
+        
+        // pack_args
+        case 0x2F:
+          {
+            unsigned char start = *ptr++;
+            int argc = (int)GET_INTERNAL (stack[bp + 3]);
+            
+            rho_value vec = rho_value_make_vec (argc - start, *this->gc);
+            auto& vec_data = vec.val.gc->val.vec;
+            for (int i = start; i < argc; ++i)
+              vec_data.vals[i - start] = stack[bp - 2 - i];
+            vec_data.len = argc - start;
+            
+            stack[bp + 5] = vec;
+            gc_unprotect (vec);
           }
           break;
          
@@ -623,7 +662,7 @@ namespace rho {
             ptr += 4;
             
             auto res = rho_value_match (stack[sp - 1], stack[sp - 2],
-              stack + bp + 5 + loff);
+              stack + bp + 6 + loff);
             -- sp;
             stack[sp - 1] = rho_value_make_bool (res);
           }
@@ -983,9 +1022,9 @@ namespace rho {
               stack[sp++] = rho_value_make_nil ();
               
               std::cout << "BP#" << bp << std::endl;
-              if (bp == 2)
+              if (bp == 0)
                 int a = 5;
-              else if (bp == 3)
+              else if (bp == 10)
                 int a = 5;
             }
             break;
